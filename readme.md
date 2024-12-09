@@ -74,7 +74,11 @@ python run_demo_clearpose.py
 ```
 
 
-https://github.com/user-attachments/assets/018c68c0-c38b-43a2-9047-4830ad64e826
+
+
+https://github.com/user-attachments/assets/f9200409-62ee-4f8d-8699-78edfc2415e1
+
+
 
 
 ### Demo 4: Improved Pose Estimation and Tracking for Transparent Objects
