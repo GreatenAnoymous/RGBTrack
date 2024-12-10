@@ -46,7 +46,7 @@ In this demo, we demonstrate how to combine One-2-3-45++, a monocular depth esti
 python run_demo_model_mono.py
 ```
 
-### Demo 3: Auto-Recovery Mechanism for Tracking Loss in Pose Tracking
+### Demo 3: Auto-Recovery Mechanism Guided by XMem for Tracking Loss in Pose Tracking
 
 In the tracking process of **FoundationPose**, a refiner network and the pose from the previous frame are used to predict the object pose for the current frame. This approach is effective because the pose for the current frame is typically close to the previous frame, provided the object is not moving rapidly or remains in view. However, **FoundationPose** can easily lose track of an object when it is briefly obstructed by other objects. A common solution to this issue is to re-register the object's pose once it becomes visible again. This poses certain challenges.
 
