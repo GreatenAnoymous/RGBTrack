@@ -89,6 +89,10 @@ Illustration of advancements in pose estimation and tracking specifically for tr
 python run_demo_transparent_bottle_tracking.py
 ```
 
+
+https://github.com/user-attachments/assets/3451b619-f70c-4e40-9a6e-c8963da8fa5a
+
+
 ---
 
 ## References
