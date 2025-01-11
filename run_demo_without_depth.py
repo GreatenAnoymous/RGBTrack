@@ -14,18 +14,17 @@ import trimesh
 from tools import get_3d_points
 from binary_search_adjust import *
 import numpy as np
-import trimesh
 import pyrender
 import open3d as o3d
 from scipy.spatial.transform import Rotation as R
 
 SAVE_VIDEO=True
-repo = "isl-org/ZoeDepth"
+# repo = "isl-org/ZoeDepth"
 
-# Zoe_N
-model_zoe_n = torch.hub.load(repo, "ZoeD_NK", pretrained=True)
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-zoe = model_zoe_n.to(DEVICE)
+# # Zoe_N
+# model_zoe_n = torch.hub.load(repo, "ZoeD_NK", pretrained=True)
+# DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+# zoe = model_zoe_n.to(DEVICE)
 
 
 
@@ -87,31 +86,34 @@ if __name__ == "__main__":
     for i in range(len(reader.color_files)):
         logging.info(f"i:{i}")
         color = reader.get_color(i)
-       
         if i == 0:
             mask = reader.get_mask(0).astype(bool)
             last_mask= mask
             t1=time.time()
             # initial_depth= reader.get_depth(0)
-            depth_numpy= zoe.infer_pil(color)
-            # depth_numpy=1.9*np.ones_like(initial_depth)
-            # pose= binary_search_depth(est, mesh, color, mask, reader.K,debug=True)
-          
-            pose = est.register(
-                K=reader.K,
-                rgb=color,
-                depth=depth_numpy,
-                ob_mask=mask,
-                iteration=args.est_refine_iter,
-            )
-            
+            # depth_numpy= zoe.infer_pil(color)
+            depth_numpy=np.ones_like(mask)
+            pose= binary_search_depth(est, mesh, color, mask, reader.K,debug=True)
+            # pose = est.register(
+            #     K=reader.K,
+            #     rgb=color,
+            #     depth=depth_numpy,
+            #     ob_mask=mask,
+            #     iteration=args.est_refine_iter,
+            # )
+            # pose = est.register_without_depth(
+            #     K=reader.K,
+            #     rgb=color,
+            #     ob_mask=mask,
+            #     iteration=args.est_refine_iter,
+            # )
             logging.info(f"Initial pose:\n{pose}")
             # coarse_estimate(est, mesh, color,mask,reader.K, to_origin, bbox)
             # rgb, depth, mask = render_rgbd(mesh, pose,reader.K, 640, 480)
             # logging.info(f"depth shape: {depth.shape}, np.max(depth): {np.max(depth)}")
             t2=time.time()
             if SAVE_VIDEO:
-                output_video_path = "fp_nodepth_unimproved.mp4"  # Specify the output video filename
+                output_video_path = "fp_nodepth_improved.mp4"  # Specify the output video filename
                 fps = 30  # Frames per second for the video
                 # Assuming 'color' is the image shape (height, width, channels)
                 # Create a VideoWriter object
@@ -147,8 +149,6 @@ if __name__ == "__main__":
                 transparency=0,
                 is_input_rgb=True,
             )
-            
-
             cv2.imshow("1", vis[..., ::-1])
             cv2.waitKey(1)
 

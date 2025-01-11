@@ -10,22 +10,29 @@
 from estimater import *
 from datareader import *
 import argparse
-
+from tools import save_poses_to_txt, read_poses_from_txt
+from binary_search_adjust import *
+SAVE_VIDEO=False
 
 if __name__=='__main__':
   parser = argparse.ArgumentParser()
+  # Configure logging
   code_dir = os.path.dirname(os.path.realpath(__file__))
-  parser.add_argument('--mesh_file', type=str, default=f'{code_dir}/demo_data/mustard0/mesh/textured_simple.obj')
-  parser.add_argument('--test_scene_dir', type=str, default=f'{code_dir}/demo_data/mustard0')
+  parser.add_argument('--mesh_file', type=str, 
+                      default=f'{code_dir}/demo_data/mustard0/mesh/textured_simple.obj'
+                      # default=f"{code_dir}/demo_data/far_away3/mesh/model.obj"
+                      )
+  parser.add_argument('--test_scene_dir', type=str, 
+                      default=f"{code_dir}/demo_data/mustard0"
+                      )
   parser.add_argument('--est_refine_iter', type=int, default=5)
-  parser.add_argument('--track_refine_iter', type=int, default=2)
+  parser.add_argument('--track_refine_iter', type=int, default=3)
   parser.add_argument('--debug', type=int, default=1)
   parser.add_argument('--debug_dir', type=str, default=f'{code_dir}/debug')
   args = parser.parse_args()
 
   set_logging_format()
   set_seed(0)
-
   mesh = trimesh.load(args.mesh_file)
 
   debug = args.debug
@@ -42,15 +49,18 @@ if __name__=='__main__':
   logging.info("estimator initialization done")
 
   reader = YcbineoatReader(video_dir=args.test_scene_dir, shorter_side=None, zfar=np.inf)
-
+  pose_data=[]
   for i in range(len(reader.color_files)):
     logging.info(f'i:{i}')
     color = reader.get_color(i)
     depth = reader.get_depth(i)
     if i==0:
       mask = reader.get_mask(0).astype(bool)
-      pose = est.register(K=reader.K, rgb=color, depth=depth, ob_mask=mask, iteration=args.est_refine_iter)
-
+      pose= binary_search_depth(est, mesh, color, mask, reader.K,depth_min=0.2, depth_max=3,debug=True)
+      # pose = est.register(K=reader.K, rgb=color, depth=depth, ob_mask=mask, iteration=args.est_refine_iter)
+      # pose=est.register_without_depth(K=reader.K, rgb=color, ob_mask=mask, iteration=args.est_refine_iter,low=0.2,high=3)
+      pose_data.append(pose)
+      logging.info(f'pose:{pose}')
       if debug>=3:
         m = mesh.copy()
         m.apply_transform(pose)
@@ -59,11 +69,22 @@ if __name__=='__main__':
         valid = depth>=0.001
         pcd = toOpen3dCloud(xyz_map[valid], color[valid])
         o3d.io.write_point_cloud(f'{debug_dir}/scene_complete.ply', pcd)
+      if SAVE_VIDEO:
+        output_video_path = "foundation_pose.mp4"  # Specify the output video filename
+        fps = 30  # Frames per second for the video
+        # Assuming 'color' is the image shape (height, width, channels)
+        # Create a VideoWriter object
+        fourcc = cv2.VideoWriter_fourcc(*'XVID')  # Codec for .avi format
+        video_writer = cv2.VideoWriter(output_video_path, fourcc, fps, (640, 480))
     else:
       pose = est.track_one(rgb=color, depth=depth, K=reader.K, iteration=args.track_refine_iter)
+      pose_data.append(pose)
+    
+    
 
-    os.makedirs(f'{debug_dir}/ob_in_cam', exist_ok=True)
-    np.savetxt(f'{debug_dir}/ob_in_cam/{reader.id_strs[i]}.txt', pose.reshape(4,4))
+    # os.makedirs(f'{debug_dir}/ob_in_cam', exist_ok=True)
+    # np.savetxt(f'{debug_dir}/ob_in_cam/{reader.id_strs[i]}.txt', pose.reshape(4,4))
+    
 
     if debug>=1:
       center_pose = pose@np.linalg.inv(to_origin)
@@ -76,4 +97,6 @@ if __name__=='__main__':
     if debug>=2:
       os.makedirs(f'{debug_dir}/track_vis', exist_ok=True)
       imageio.imwrite(f'{debug_dir}/track_vis/{reader.id_strs[i]}.png', vis)
-
+    if SAVE_VIDEO:
+      video_writer.write(vis[..., ::-1])
+  # save_poses_to_txt(f'./data_demo_gt.txt', pose_data)

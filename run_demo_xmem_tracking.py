@@ -44,13 +44,13 @@ if __name__ == "__main__":
         "--mesh_file",
         type=str,
         # default=f"{code_dir}/demo_data/mustard0/mesh/textured_simple.obj",
-        default=f"{code_dir}/demo_data/cola_can/mesh/32429d6d7cd54f8392f9b3056a1f26c3.obj",
-        # default=f"{code_dir}/demo_data/far_away2/mesh/model.obj"
+        # default=f"{code_dir}/demo_data/cola_can/mesh/32429d6d7cd54f8392f9b3056a1f26c3.obj",
+        default=f"{code_dir}/demo_data/far_away2/mesh/model.obj"
     )
     parser.add_argument(
         # "--test_scene_dir", type=str, default=f"{code_dir}/demo_data/mustard0"
-        "--test_scene_dir", type=str, default=f"{code_dir}/demo_data/cola_can"
-        # "--test_scene_dir", type=str, default=f"{code_dir}/demo_data/far_away2"
+        # "--test_scene_dir", type=str, default=f"{code_dir}/demo_data/cola_can"
+        "--test_scene_dir", type=str, default=f"{code_dir}/demo_data/far_away2"
 
     )
     parser.add_argument("--est_refine_iter", type=int, default=5)
@@ -92,19 +92,14 @@ if __name__ == "__main__":
         video_dir=args.test_scene_dir, shorter_side=None, zfar=np.inf
     )
     
-
     
     if USE_XMEM:
         network = XMem(config, f'{XMEM_PATH}/saves/XMem.pth').eval().to("cuda")
-        # for name, param in network.named_parameters():
-        #     print(f"Parameter: {name}, Data type: {param.dtype}")
-        #     exit(0)
         processor=InferenceCore(network, config=config)
         processor.set_all_labels(range(1,2))
         #You can change these values to get different results
         frames_to_propagate = 1000
-    # last_depth = reader.get_depth(0)
-    # last_rgb = reader.get_color(0)
+
     
     for i in range(len(reader.color_files)):
         logging.info(f"i:{i}")
@@ -115,15 +110,9 @@ if __name__ == "__main__":
             mask = reader.get_mask(0).astype(bool)
             last_mask= mask
             t1=time.time()
-            # initial_depth= reader.get_depth(0)
+            initial_depth= reader.get_depth(0)
             # depth_numpy= zoe.infer_pil(color)*0.2
             # depth_numpy=1.9*np.ones_like(initial_depth)
-            # pose= est.register_without_depth(
-            #     K=reader.K,
-            #     rgb=color,
-            #     ob_mask=mask,
-            #     iteration=args.est_refine_iter,
-            # )
             pose= binary_search_depth(est,mesh, color, mask, reader.K, depth_max=6)
             # pose = est.register(
             #     K=reader.K,
@@ -134,12 +123,6 @@ if __name__ == "__main__":
             # )
             
             logging.info(f"Initial pose:\n{pose}")
-            # coarse_estimate(est, mesh, color,mask,reader.K, to_origin, bbox)
-            
-            
-            # rgb, depth, mask = render_rgbd(mesh, pose,reader.K, 640, 480)
-            # logging.info(f"depth shape: {depth.shape}, np.max(depth): {np.max(depth)}")
-
         
             t2=time.time()
             
@@ -170,8 +153,7 @@ if __name__ == "__main__":
             )
             
             t2=time.time()
-        # os.makedirs(f"{debug_dir}/ob_in_cam", exist_ok=True)
-        # np.savetxt(f"{debug_dir}/ob_in_cam/{reader.id_strs[i]}.txt", pose.reshape(4, 4))
+    
 
         if debug >= 1:
             center_pose = pose @ np.linalg.inv(to_origin)
