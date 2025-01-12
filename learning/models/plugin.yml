@@ -1,0 +1,17 @@
+ScaledDotProductAttention:
+  inputs:
+    tpg_input_0:
+      shape: -1x-1x-1
+    tpg_input_1:
+      shape: -1x-1x-1
+    tpg_input_2:
+      shape: -1x-1x-1
+    tpg_input_3:
+      shape: 1
+  outputs:
+    tpg_output_0:
+      shape: -1x-1x-1
+  plugin_type: IPluginV2DynamicExt
+  support_format_combination:
+    - "float32+float32+float32+float32+float32"
+    - "float16+float16+float16+float16+float16"
