@@ -17,32 +17,8 @@ import torch
 from binary_search_adjust import *
 from tools import PoseTracker
 from scipy.spatial.transform import Rotation as R
-from tools import render_cad_depth, render_cad_mask
-
-def render_rgbd(cad_model, object_pose, K, W, H):
-    if type(object_pose) is not torch.Tensor:
-        object_pose = torch.tensor(object_pose, dtype=torch.float, device="cuda")
-
-
-    mesh_tensors = make_mesh_tensors(cad_model)
-
-    rgb_r, depth_r, normal_r = nvdiffrast_render(
-        K=K,
-        H=H,
-        W=W,
-        ob_in_cams=object_pose,
-        context="cuda",
-        get_normal=False,
-        glctx=None,
-        mesh_tensors=mesh_tensors,
-        output_size=[H, W],
-        use_light=True,
-    )
-    rgb_r = rgb_r.squeeze()
-    depth_r = depth_r.squeeze()
-    mask_r = depth_r > 0
-    return rgb_r, depth_r, mask_r
-
+from tools import render_cad_depth, render_cad_mask, render_rgbd
+from featurematching import FeatureMathcerPoseEstimator
 
 class FoundationPose:
     def __init__(
@@ -223,7 +199,7 @@ class FoundationPose:
             ob_in_cams=pose_tensor,
             context="cuda",
             get_normal=False,
-            glctx=glctx,
+            glctx=self.glctx,
             mesh_tensors=mesh_tensors,
             output_size=[H, W],
             use_light=True,
@@ -232,6 +208,88 @@ class FoundationPose:
         return rgb_r, depth_r, mask_r
 
         # return best_pose.data.cpu().numpy()
+        
+    def generate_ref_views(self, dz=0.5, num_views=16):
+        poses=self.rot_grid.clone()
+        center=[0,0,dz]
+        poses[:, :3, 3] = torch.tensor(center, device="cuda", dtype=torch.float).reshape(1, 3)
+        # randomly choose 16 views
+        indices = torch.linspace(0, poses.size(0) - 1, steps=num_views, dtype=torch.long)
+        poses = poses[indices]
+        rgbds=[]
+        for i in range(num_views):
+            pose=poses[i]
+            rgb, depth, mask = render_rgbd(self.mesh, pose.data.cpu().numpy(), self.K, self.W, self.H)
+            rgbds.append((rgb, depth, mask))
+        
+        return poses, rgbds
+    
+    def register_super_gule(self, rgb, mask, K,  device='cuda'):
+        fme=FeatureMathcerPoseEstimator()
+        posesA, rgbdsA=self.generate_ref_views(dz=0.5, num_views=16)
+        for i in range(len(rgbdsA)):
+            rgb_i, depth_i, mask_i=rgbdsA[i]
+            rl_pose=fme.estimated_pose_from_images_superglue(rgb_i, mask_i, depth_i, K, rgb, mask, K)
+            posesA[i]=rl_pose @posesA[i]
+        depth_arrays=[depth_i for rgb_i, depth_i, mask_i in rgbdsA]
+        normal_map = None
+        xyz_maps=[depth2xyzmap(depth_i, K) for depth_i in depth_arrays]
+        iteration=5
+        with torch.no_grad():
+            posesA, vis = self.refiner.predict_depth_batches(
+                mesh=self.mesh,
+                mesh_tensors=self.mesh_tensors,
+                rgb=rgb,
+                depths=depth_arrays,
+                K=K,
+                ob_in_cams=posesA,
+                normal_map=normal_map,
+                xyz_map=xyz_maps,
+                glctx=self.glctx,
+                mesh_diameter=self.diameter,
+                iteration=iteration,
+                get_vis=self.debug >= 2,
+            )
+        torch.cuda.empty_cache()
+        if vis is not None:
+            imageio.imwrite(f"{self.debug_dir}/vis_refiner.png", vis)
+        with torch.no_grad():
+            scores, vis = self.scorer.predict(
+                mesh=self.mesh,
+                rgb=rgb,
+                depth=depth_arrays,
+                K=K,
+                ob_in_cams=posesA,
+                normal_map=normal_map,
+                mesh_tensors=self.mesh_tensors,
+                glctx=self.glctx,
+                mesh_diameter=self.diameter,
+                get_vis=self.debug >= 2,
+            )
+        ids = torch.as_tensor(scores).argsort(descending=True)
+        # logging.info(f'sort ids:{ids}')
+        scores = scores[ids]
+        poses = poses[ids]
+    
+        best_pose = poses[0] @ self.get_tf_to_centered_mesh()
+        self.pose_last = poses[0]
+        self.xyz = self.pose_last[:3, 3]
+        self.best_id = ids[0]
+        self.mask_last = mask
+        self.poses = poses
+        self.scores = scores
+        self.track_good = True
+        rgb_r, depth_r, mask_r = render_rgbd(
+            cad_model=self.mesh,
+            object_pose=best_pose.data.cpu().numpy(),
+            K=K,
+            W=rgb.shape[1],
+            H=rgb.shape[0],
+        )
+        self.last_depth = torch.tensor(depth_r, device="cuda", dtype=torch.float)
+
+        return best_pose.data.cpu().numpy()
+
 
     def choose_k_best(self, poses, given_pose, k=30):
         """
@@ -260,6 +318,8 @@ class FoundationPose:
         k_best_poses = poses[topk_indices]
 
         return k_best_poses
+    
+    
 
     def register(
         self,
@@ -466,7 +526,14 @@ class FoundationPose:
 
         add_errs = self.compute_add_err_to_gt_pose(poses)
     
-        xyz_map = depth2xyzmap(depth, K)
+        # xyz_map = depth2xyzmap(depth, K)
+        xyz_maps = []
+        for i in range(len(depth_arrays)):
+            xyz_map = depth2xyzmap(depth_arrays[i], K)
+            xyz_maps.append(xyz_map)
+            
+        
+    
         with torch.no_grad():
             poses, vis = self.refiner.predict_depth_batches(
                 mesh=self.mesh,

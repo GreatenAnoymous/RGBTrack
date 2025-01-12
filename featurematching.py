@@ -49,8 +49,7 @@ class FeatureMathcerPoseEstimator:
         superglue_model=self.model
         rgb1= rgb1*255.0
         rgb1=cv2.cvtColor(rgb1, cv2.COLOR_BGR2RGB)
-        cv2.imwrite("rgb1.png", rgb1)
-        cv2.imwrite("rgb2.png", rgb2)
+    
         h,w,_= rgb1.shape
         gray1= cv2.cvtColor(rgb1, cv2.COLOR_BGR2GRAY)
 
@@ -98,7 +97,7 @@ class FeatureMathcerPoseEstimator:
         keypoints1_copy= keypoints1.copy()
         keypoints2_copy= keypoints2.copy()
         keypoints1_downscale=[]
-   
+
         keypoints2_downscale=[]
         for kpt in keypoints1:
             keypoints1_downscale.append([kpt[0]/w*self.w, kpt[1]/h*self.h])
@@ -142,10 +141,10 @@ class FeatureMathcerPoseEstimator:
         pose2[:3, :3] = R
         pose2[:3, 3] = tvec.squeeze()
 
-        center_pose2 = (pose2 @ last_pose)@np.linalg.inv(self.to_origin)
-        center_pose1 = last_pose @ np.linalg.inv(self.to_origin)
-        gray1_copy= gray1.copy()
-        gray2_copy= gray2.copy()
+        # center_pose2 = (pose2 @ last_pose)@np.linalg.inv(self.to_origin)
+        # center_pose1 = last_pose @ np.linalg.inv(self.to_origin)
+        # gray1_copy= gray1.copy()
+        # gray2_copy= gray2.copy()
 
         # gray1_copy= cv2.resize(gray1, (self.w, self.h))
         # gray2_copy= cv2.resize(gray2, (self.w, self.h))
@@ -155,33 +154,32 @@ class FeatureMathcerPoseEstimator:
         # Km[1, 1]= self.K[1, 1]*3
         # Km[0, 2]= self.K[0, 2]*3
         # Km[1, 2]= self.K[1, 2]*3
-        color = cm.jet(confidence)
-        vis1 = draw_posed_3d_box(Km, img=gray1_copy, ob_in_cam=center_pose1, bbox=self.bbox)
-        vis1 = draw_xyz_axis(gray1_copy, ob_in_cam=center_pose1, scale=0.1, K=Km, thickness=3, transparency=0, is_input_rgb=True)
+        # color = cm.jet(confidence)
+        # vis1 = draw_posed_3d_box(Km, img=gray1_copy, ob_in_cam=center_pose1, bbox=self.bbox)
+        # vis1 = draw_xyz_axis(gray1_copy, ob_in_cam=center_pose1, scale=0.1, K=Km, thickness=3, transparency=0, is_input_rgb=True)
 
-        vis2 = draw_posed_3d_box(Km, img=gray2_copy, ob_in_cam=center_pose2, bbox=self.bbox)
-        vis2 = draw_xyz_axis(gray2_copy, ob_in_cam=center_pose2, scale=0.1, K=Km, thickness=3, transparency=0, is_input_rgb=True)
+        # vis2 = draw_posed_3d_box(Km, img=gray2_copy, ob_in_cam=center_pose2, bbox=self.bbox)
+        # vis2 = draw_xyz_axis(gray2_copy, ob_in_cam=center_pose2, scale=0.1, K=Km, thickness=3, transparency=0, is_input_rgb=True)
 
-        out = make_matching_plot_fast(gray1_copy, gray2_copy, keypoints1_copy, keypoints2_copy, mkpts0_copy, mkpts1_copy, color, "",
-                path=None, show_keypoints=True)
-  
-        cv2.imwrite(f"./tmp/debug_matching.png", out)
+        # out = make_matching_plot_fast(gray1_copy, gray2_copy, keypoints1_copy, keypoints2_copy, mkpts0_copy, mkpts1_copy, color, "",
+        #         path=None, show_keypoints=True)
+        # cv2.imwrite(f"./tmp/debug_matching.png", out)
 
-        projected_points, _ = cv2.projectPoints(points_3d, rvec, tvec, camera_matrix, None)
+        # projected_points, _ = cv2.projectPoints(points_3d, rvec, tvec, camera_matrix, None)
         
-        # Compute the Euclidean distance between actual 2D points and projected points
-        projected_points = projected_points.reshape(-1, 2)
-        pts2 = pts2.reshape(-1, 2)
-      
-        
-        # Calculate the reprojection error for each point
-        errors = np.linalg.norm(pts2 - projected_points, axis=1)
-        
-        # Compute the mean error
-        mean_error = np.mean(errors)
+        # # Compute the Euclidean distance between actual 2D points and projected points
+        # projected_points = projected_points.reshape(-1, 2)
+        # pts2 = pts2.reshape(-1, 2)
 
-        return pose2, -len(keypoints1), 
+        
+        # # Calculate the reprojection error for each point
+        # errors = np.linalg.norm(pts2 - projected_points, axis=1)
+        
+        # # Compute the mean error
+        # mean_error = np.mean(errors)
 
+        return pose2
+    
     def crop_image(self, rgb, object_mask):
         x, y, w, h = cv2.boundingRect(object_mask.astype(np.uint8))
         cropped_rgb = rgb[y:y+h, x:x+w]
