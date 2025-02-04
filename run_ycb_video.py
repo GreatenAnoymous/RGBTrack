@@ -75,16 +75,16 @@ def run_pose_estimation_worker(
         ob_mask = get_mask(reader, i_frame, ob_id, detect_type=detect_type)
 
         est.gt_pose = reader.get_gt_pose(i_frame, ob_id)
-        pose= binary_search_depth(est, est.mesh, color, ob_mask, reader.K,debug=True)
+        # pose= binary_search_depth(est, est.mesh, color, ob_mask, reader.K,debug=True)
         
-        # pose = est.register(
-        #     K=reader.K,
-        #     rgb=color,
-        #     depth=depth,
-        #     ob_mask=ob_mask,
-        #     ob_id=ob_id,
-        #     iteration=5,
-        # )
+        pose = est.register(
+            K=reader.K,
+            rgb=color,
+            depth=depth,
+            ob_mask=ob_mask,
+            ob_id=ob_id,
+            iteration=5,
+        )
         tmp_data=evaluate_pose(est.gt_pose, pose, model_points, diameter)
     
         for key in data:
@@ -127,8 +127,6 @@ def run_pose_estimation():
     final_data={}
 
     for ob_id in ob_ids:
-
-        
         print(f"Processing object {ob_id}")
         final_data[ob_id]={"ADD":0, "ADD-S":0, "ADD_AUC":0, "ADD-S_AUC":0, "rotation_error_deg":0, "translation_error":0, "recall":0}
         if use_reconstructed_mesh:
@@ -188,44 +186,17 @@ def run_pose_estimation():
             for key in final_data[ob_id]:
                 final_data[ob_id][key]/=count
         
-        # print(len(args))
-        # count=0
-        # for arg in args:
-        #     tmp_data= run_pose_estimation_worker(*arg)
-        #     count+=1
-        #     for key in final_data[ob_id]:
-        #         final_data[ob_id][key]+=tmp_data[key]
-        #     for key in final_data[ob_id]:
-        #         final_data[ob_id][key]/=count
-        # final_data["mean"]={"ADD":0, "ADD-S":0, "ADD_AUC":0, "ADD-S_AUC":0, "rotation_error_deg":0, "translation_error":0, "recall":0}
-        # for obj in final_data:
-        #     if obj=="mean":
-        #         continue
-        #     for sub_key in final_data[obj]:
-        #         final_data["mean"][sub_key]+=final_data[obj][sub_key]
-        # for key in final_data["mean"]:
-        #     final_data["mean"][key]/=len(final_data)-1
 
     #dump to csv
-        header=["object","ADD", "ADD-S", "ADD_AUC", "ADD-S_AUC", "rotation_error_deg", "translation_error", "recall"]
-        with open("data.csv", "w") as f:
-            f.write(",".join(header)+"\n")
-            for obj in final_data:
-                f.write(str(obj))
-                for key in header[1:]:
-                    f.write(f",{final_data[obj][key]}")
-                f.write("\n")
+            header=["object","ADD", "ADD-S", "ADD_AUC", "ADD-S_AUC", "rotation_error_deg", "translation_error", "recall"]
+            with open("data2.csv", "w") as f:
+                f.write(",".join(header)+"\n")
+                for obj in final_data:
+                    f.write(str(obj))
+                    for key in header[1:]:
+                        f.write(f",{final_data[obj][key]}")
+                    f.write("\n")
         
-
-        # for out in outs:
-        #     for video_id in out:
-        #         for id_str in out[video_id]:
-        #             if video_id not in res:
-        #                 res[video_id] = {}
-        #             if id_str not in res[video_id]:
-        #                 res[video_id][id_str] = {}
-        #             # print(out[video_id][id_str][ob_id])
-        #             res[video_id][id_str][ob_id] = out[video_id][id_str][ob_id].tolist()
 
 
 

@@ -23,7 +23,7 @@ import numpy as np
 from PIL import Image
 from xmem_wrapper import *
 USE_XMEM = True
-SAVE_VIDEO= True
+SAVE_VIDEO= False
 from torch.cuda.amp import autocast
 
 
@@ -61,14 +61,14 @@ def infer_online(args):
     logging.info("estimator initialization done")
 
     #object_id = 202, 55
-    # object_id = 200
     object_id = 202
+    # object_id = 201
     # object_id = 60
     reader = ClosePoseReader(
         video_dir=args.test_scene_dir, object_id=object_id , shorter_side=None, zfar=np.inf)
     
-    print(f'len(reader.color_files): {len(reader.color_files)}')
-    for i in range(len(reader.color_files)):
+    start=0
+    for i in range(start,len(reader.color_files)):
     
         logging.info(f'i:{i}')
         color = reader.get_color(i)
@@ -80,7 +80,7 @@ def infer_online(args):
 
         green_color =np.array([0,255,0],dtype=np.uint8)
         t1= time.time()
-        if i == 0:
+        if i == start:
             if SAVE_VIDEO:
                 # Initialize VideoWriter
                 output_video_path = "fp_tracking_improved.mp4"  # Specify the output video filename
@@ -94,11 +94,11 @@ def infer_online(args):
                 video_writer = cv2.VideoWriter(output_video_path, fourcc, fps, (width, height))
 
             
-            mask = reader.get_mask(0).astype(bool)
+            mask = reader.get_mask(start).astype(bool)
             
             if USE_XMEM:
                 # color[mask]= green_color
-                mask_png= reader.get_mask(0)
+                mask_png= reader.get_mask(start)
                 mask_png[mask_png>250]=1
 
                 mask_torch= index_numpy_to_one_hot_torch(mask_png, 2).to("cuda")
@@ -134,6 +134,15 @@ def infer_online(args):
             #                      K=reader.K, iteration=args.track_refine_iter)
             pose = est.track_one_new(rgb=color, depth=depth, 
                                 K=reader.K,mask=mask, iteration=args.track_refine_iter)
+            pose_predict=est.tracker.predict_next_pose()
+            print(f"pose_predict: {np.squeeze(pose_predict['orientation'])}")
+            print(f"angular_rates: {np.squeeze(pose_predict['angular_rates'])}")
+            #get the euler angles from the pose
+            r=R.from_matrix(pose[:3,:3])
+            angles=r.as_euler("xyz").reshape(3, 1)
+            print(f"angles: {np.squeeze(angles)}")
+            # print(f"pose: {pose[:3,3]}")
+            print("=====================================")
         t2= time.time()
         os.makedirs(f'{debug_dir}/ob_in_cam', exist_ok=True)
         color_copy=color.copy()
@@ -171,9 +180,9 @@ if __name__ == '__main__':
     code_dir = os.path.dirname(os.path.realpath(__file__))
     parser.add_argument('--mesh_file', type=str, default=f'{code_dir}/demo_data/mustard0/mesh/textured_simple.obj')
     # parser.add_argument('--mesh_file', type=str, default=f'{code_dir}/demo_data/closepose/closepose_model/wine_cup_1/wine_cup_1.obj')
-    # parser.add_argument('--mesh_file', type=str, default=f'{code_dir}/demo_data/closepose/closepose_model/bottle_3/bottle_3.obj')
+    # parser.add_argument('--mesh_file', type=str, default=f'{code_dir}/demo_data/closepose/closepose_model/005_tomato_soup_can/005_tomato_soup_can.obj')
     parser.add_argument('--test_scene_dir', type=str,
-                        default=f'{code_dir}/demo_data/closepose/set8/scene2/')
+                        default=f'{code_dir}/demo_data/closepose/set8/scene1/')
     parser.add_argument('--est_refine_iter', type=int, default=5)
     parser.add_argument('--track_refine_iter', type=int, default=2)
     parser.add_argument('--debug', type=int, default=1)

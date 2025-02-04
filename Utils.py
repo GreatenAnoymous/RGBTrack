@@ -219,6 +219,64 @@ def nvdiffrast_render(K=None, H=None, W=None, ob_in_cams=None, glctx=None, conte
     return color, depth, normal_map
 
 
+
+
+def nvdiffrast_render_depthonly(K=None, H=None, W=None, ob_in_cams=None, glctx=None, context='cuda', get_normal=False, mesh_tensors=None, mesh=None, projection_mat=None, bbox2d=None, output_size=None, use_light=False, light_color=None, light_dir=np.array([0,0,1]), light_pos=np.array([0,0,0]), w_ambient=0.8, w_diffuse=0.5, extra={}):
+    '''Just plain rendering, not support any gradient
+    @K: (3,3) np array
+    @ob_in_cams: (N,4,4) torch tensor, openCV camera
+    @projection_mat: np array (4,4)
+    @output_size: (height, width)
+    @bbox2d: (N,4) (umin,vmin,umax,vmax) if only roi need to render.
+    @light_dir: in cam space
+    @light_pos: in cam space
+    '''
+    if glctx is None:
+        if context == 'gl':
+            glctx = dr.RasterizeGLContext()
+        elif context=='cuda':
+            glctx = dr.RasterizeCudaContext()
+        else:
+            raise NotImplementedError
+        logging.info("created context")
+
+    if mesh_tensors is None:
+        mesh_tensors = make_mesh_tensors(mesh)
+    pos = mesh_tensors['pos']
+    vnormals = mesh_tensors['vnormals']
+    pos_idx = mesh_tensors['faces']
+    has_tex = 'tex' in mesh_tensors
+
+    ob_in_glcams = torch.tensor(glcam_in_cvcam, device='cuda', dtype=torch.float)[None]@ob_in_cams
+    if projection_mat is None:
+        projection_mat = projection_matrix_from_intrinsics(K, height=H, width=W, znear=0.001, zfar=100)
+    projection_mat = torch.as_tensor(projection_mat.reshape(-1,4,4), device='cuda', dtype=torch.float)
+    mtx = projection_mat@ob_in_glcams
+
+    if output_size is None:
+        output_size = np.asarray([H,W])
+
+    pts_cam = transform_pts(pos, ob_in_cams)
+    pos_homo = to_homo_torch(pos)
+    pos_clip = (mtx[:,None]@pos_homo[None,...,None])[...,0]
+    if bbox2d is not None:
+        l = bbox2d[:,0]
+        t = H-bbox2d[:,1]
+        r = bbox2d[:,2]
+        b = H-bbox2d[:,3]
+        tf = torch.eye(4, dtype=torch.float, device='cuda').reshape(1,4,4).expand(len(ob_in_cams),4,4).contiguous()
+        tf[:,0,0] = W/(r-l)
+        tf[:,1,1] = H/(t-b)
+        tf[:,3,0] = (W-r-l)/(r-l)
+        tf[:,3,1] = (H-t-b)/(t-b)
+        pos_clip = pos_clip@tf
+    rast_out, _ = dr.rasterize(glctx, pos_clip, pos_idx, resolution=np.asarray(output_size))
+    xyz_map, _ = dr.interpolate(pts_cam, rast_out, pos_idx)
+    depth = xyz_map[...,2]
+    depth = torch.flip(depth, dims=[1])
+    return depth
+    
+
 def set_seed(random_seed):
     import torch,random
     np.random.seed(random_seed)

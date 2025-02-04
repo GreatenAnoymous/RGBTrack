@@ -125,7 +125,7 @@ if __name__ == "__main__":
     os.environ["YCB_VIDEO_DIR"] = ycbv_dir
     reader_tmp = YcbVideoReader(video_dirs[0])
     mesh_tmp = trimesh.primitives.Box(extents=np.ones((3)), transform=np.eye(4))
-    ob_id = 2
+    ob_id = 7
     mesh = reader_tmp.get_gt_mesh(ob_id)
 
     debug = args.debug
@@ -149,14 +149,16 @@ if __name__ == "__main__":
         debug=debug,
         glctx=glctx,
     )
-
+    k=0
     for video_dir in video_dirs:
         try:
             logging.info(f"video_dir: {video_dir}")
             reader = YcbVideoReader(video_dir, zfar=1.5)
             scene_ob_ids = reader.get_instance_ids_in_image(0)
             if ob_id in scene_ob_ids:
-                break
+                k+=1
+                if k==1:
+                    break
         except:
             pass
     logging.info(f"video_dir: {video_dir}")
@@ -170,25 +172,21 @@ if __name__ == "__main__":
 
         if i == 0:
             # mask = reader.get_mask(0).astype(bool)
-            mask = get_mask(reader, 0, ob_id, detect_type="box")
+            mask = get_mask(reader, 0, ob_id, detect_type="mask")
             last_mask = mask
             t1 = time.time()
             initial_depth = reader.get_depth(0)
-
+            last_depth = initial_depth
             # depth_numpy= zoe.infer_pil(color)
             # initial_depth= depth_numpy*10
             depth_numpy = None
-            pose = binary_search_depth(
-                est, mesh, color, mask, reader.K,debug=True
-            )
+            # pose = binary_search_depth(
+            #     est, mesh, color, mask, reader.K,debug=True
+            # )
             # pose, scale= binary_search_scale(est,mesh, color, initial_depth, mask, reader.K)
             # mesh.apply_scale(scale)
-            est.reset_object(
-                model_pts=mesh.vertices.copy(),
-                model_normals=mesh.vertex_normals.copy(),
-                mesh=mesh,
-            )
-            est.register(
+
+            pose=est.register(
                 K=reader.K,
                 rgb=color,
                 depth=initial_depth,
@@ -205,7 +203,7 @@ if __name__ == "__main__":
             #     ob_mask=mask,
             #     iteration=args.est_refine_iter,
             # )
-            logging.info(f"Initial pose:\n{pose}")
+
             t2 = time.time()
 
             if SAVE_VIDEO:
@@ -224,14 +222,15 @@ if __name__ == "__main__":
             depth= reader.get_depth(i)
             prediction = last_mask
             # last_depth= optical_flow_get_depth(last_rgb.copy(), last_depth, last_mask, color.copy(), prediction)
-            last_depth = np.zeros_like(initial_depth)
+            zero_depth = np.zeros_like(last_mask)
 
             pose = est.track_one(
                 rgb=color,
-                depth=depth,
+                depth= zero_depth,
                 K=reader.K,
                 iteration=args.track_refine_iter,
             )
+            # last_depth = render_cad_depth(pose, mesh, reader.K, 640, 480)
 
             t2 = time.time()
         os.makedirs(f"{debug_dir}/ob_in_cam", exist_ok=True)

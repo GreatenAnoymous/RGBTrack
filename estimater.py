@@ -18,7 +18,7 @@ from binary_search_adjust import *
 from tools import PoseTracker
 from scipy.spatial.transform import Rotation as R
 from tools import render_cad_depth, render_cad_mask, render_rgbd
-from featurematching import FeatureMathcerPoseEstimator
+from tmp.featurematching import FeatureMathcerPoseEstimator
 
 class FoundationPose:
     def __init__(
@@ -331,6 +331,7 @@ class FoundationPose:
         glctx=None,
         iteration=5,
         return_score=False,
+        rough_depth_guess=None
     ):
         """Copmute pose from given pts to self.pcd
         @pts: (N,3) np array, downsampled scene points
@@ -355,7 +356,11 @@ class FoundationPose:
             cv2.imwrite(f"{self.debug_dir}/ob_mask.png", (ob_mask * 255.0).clip(0, 255))
 
         normal_map = None
-        valid = (depth >= 0.001) & (ob_mask > 0)
+        if  rough_depth_guess is None:
+            valid = (depth >= 0.001) & (ob_mask > 0)
+        else:
+            print('using rough depth guess')
+            valid=(ob_mask>0)
         if valid.sum() < 4:
             logging.info(f"valid too small, return")
             pose = np.eye(4)
@@ -374,9 +379,16 @@ class FoundationPose:
         self.ob_id = ob_id
         self.ob_mask = ob_mask
         self.last_depth = depth
-        poses = self.generate_random_pose_hypo(
-            K=K, rgb=rgb, depth=depth, mask=ob_mask, scene_pts=None
-        )
+        if rough_depth_guess is not None:
+            depth_guess=np.ones_like(depth)*rough_depth_guess
+            center = self.guess_translation(depth=depth_guess, mask=ob_mask, K=K)
+            poses = self.generate_random_pose_hypo(
+                K=K, rgb=rgb, depth=depth_guess, mask=ob_mask, scene_pts=None
+            )
+        else:
+            center = self.guess_translation(depth=depth, mask=ob_mask, K=K)
+            poses=self.generate_random_pose_hypo(K=K, rgb=rgb,depth=depth, mask=ob_mask)
+        
 
         #   num_samples = 100
         #   indices = torch.linspace(0, poses.size(0) - 1, steps=num_samples, dtype=torch.long)
@@ -385,17 +397,16 @@ class FoundationPose:
         #   poses = poses[indices]
 
 
-        center = self.guess_translation(depth=depth, mask=ob_mask, K=K)
+        
         # Assuming poses is a tensor of shape [252, 4, 4]
 
         
         poses[:, :3, 3] = torch.as_tensor(center.reshape(1, 3), device="cuda")
 
         add_errs = self.compute_add_err_to_gt_pose(poses)
-        logging.info(f"after viewpoint, add_errs min:{add_errs.min()}")
-        logging.info(f"poses:{poses.shape}")
+
         xyz_map = depth2xyzmap(depth, K)
-        logging.info(f"depth:{depth.shape}, rgb:{rgb.shape}, xyz_map:{xyz_map.shape}")
+
         t0 = time.time()
         poses, vis = self.refiner.predict(
             mesh=self.mesh,
@@ -434,8 +445,6 @@ class FoundationPose:
             imageio.imwrite(f"{self.debug_dir}/vis_score.png", vis)
 
         add_errs = self.compute_add_err_to_gt_pose(poses)
-
-
         ids = torch.as_tensor(scores).argsort(descending=True)
         # logging.info(f'sort ids:{ids}')
         scores = scores[ids]
@@ -620,7 +629,7 @@ class FoundationPose:
         depth = torch.as_tensor(depth, device="cuda", dtype=torch.float)
         depth = erode_depth(depth, radius=2, device="cuda")
         depth = bilateral_filter_depth(depth, radius=2, device="cuda")
-        logging.info("depth processing done")
+    
 
         xyz_map = depth2xyzmap_batch(
             depth[None],
@@ -648,22 +657,16 @@ class FoundationPose:
         self.pose_last = pose
         return (pose @ self.get_tf_to_centered_mesh()).data.cpu().numpy().reshape(4, 4)
 
-    def check_reprojection(self, pose, mesh, K):
-        rgb_r, depth_r, mask_r = render_rgbd(
-            cad_model=mesh, object_pose=pose, K=K, W=rgb.shape[1], H=rgb.shape[0]
-        )
-        translation = self.guess_translation(depth=depth_r, mask=mask_r, K=K)
-        return translation
 
+    # trans_disc = [{"R": np.eye(3), "t": np.array([[0, 0, 0]]).T}]  # Identity.
     def track_one_new(self, rgb, depth, K, iteration, mask, extra={}):
         if self.pose_last is None:
             logging.info("Please init pose by register first")
             raise RuntimeError
-        logging.info("Welcome")
         threshold = 40
 
         if np.sum(mask) <= threshold:
-            logging.info("lost tracking")
+
             predict=self.tracker.update()
             xyz_predict = np.squeeze(predict["position"])
             orientation= predict["orientation"]
@@ -674,6 +677,7 @@ class FoundationPose:
             self.pose_last = torch.tensor(predict_pose, device="cuda", dtype=torch.float)
             self.track_good = False
             self.mask_last = mask
+            print("lost tracking, Kalman filter update !!!!!!!!")
             return (
                 (self.pose_last @ self.get_tf_to_centered_mesh())
                 .data.cpu()
@@ -704,14 +708,10 @@ class FoundationPose:
 
             # Select the matrices using the computed indices
             poses = poses[indices]
-
-
-    
             center = self.guess_translation(depth=depth, mask=mask, K=K)
             # poses[:, :3, 3] = torch.as_tensor(center.reshape(1, 3), device="cuda")
 
             xyz_map = depth2xyzmap(depth, K)
-        
         
             poses, vis = self.refiner.predict(
                 mesh=self.mesh,
@@ -728,7 +728,6 @@ class FoundationPose:
                 get_vis=self.debug >= 2,
             )
 
-    
             scores, vis = self.scorer.predict(
                 mesh=self.mesh,
                 rgb=rgb,
@@ -741,13 +740,8 @@ class FoundationPose:
                 mesh_diameter=self.diameter,
                 get_vis=self.debug >= 2,
             )
-        
-
             ids = torch.as_tensor(scores).argsort(descending=True)
-
             poses = poses[ids]
-
-
             best_pose = poses[0] @ self.get_tf_to_centered_mesh()
             pose = best_pose
             self.pose_last = pose
@@ -755,14 +749,6 @@ class FoundationPose:
             if np.abs(xyz - center).sum() > 0.1:
                 self.track_good = False
             self.track_good = True
-        
-            # rgb_r, depth_r, mask_r = render_rgbd(
-            #     cad_model=self.mesh,
-            #     object_pose=pose.data.cpu().numpy(),
-            #     K=K,
-            #     W=rgb.shape[1],
-            #     H=rgb.shape[0],
-            # )
             self.last_depth = np.ones_like(mask) * xyz[2]
         else:
             center = self.guess_translation(
@@ -808,7 +794,7 @@ class FoundationPose:
         threshold = 40
 
         if np.sum(mask) <= threshold:
-            logging.info("lost tracking")
+            logging.info("lost tracking as there is no mask")
             self.track_good = False
             self.mask_last = mask
             return (
@@ -817,14 +803,9 @@ class FoundationPose:
                 .numpy()
                 .reshape(4, 4)
             )
-        # if depth is None:
-        # depth=np.zeros_like(mask)
-        # depth = torch.as_tensor(depth, device='cuda', dtype=torch.float)
-        # depth = erode_depth(depth, radius=2, device='cuda')
-        # depth = bilateral_filter_depth(depth, radius=2, device='cuda')
-        # xyz_map = depth2xyzmap_batch(depth[None], torch.as_tensor(K, dtype=torch.float, device='cuda')[None], zfar=np.inf)[0]
 
         if self.track_good == False:
+            logging.info("lost tracking using Kalman filter")
             predict = self.tracker.update()
             xyz_predict = np.squeeze(predict["position"])
             orientation = predict["orientation"]
@@ -841,7 +822,7 @@ class FoundationPose:
                 K=K, rgb=rgb, depth=depth, mask=mask, scene_pts=None
             )
 
-            num_samples = 252
+            num_samples = 20
             indices = torch.linspace(
                 0, poses.size(0) - 1, steps=num_samples, dtype=torch.long
             )
@@ -854,7 +835,7 @@ class FoundationPose:
 
             # poses = torch.as_tensor(poses, device="cuda", dtype=torch.float)
             poses[:, :3, 3] = torch.as_tensor(center.reshape(1, 3), device="cuda")
-
+            depth=np.zeros_like(mask)
             xyz_map = depth2xyzmap(depth, K)
     
             t0 = time.time()
@@ -941,9 +922,10 @@ class FoundationPose:
                 pose.cpu().numpy(), self.mesh, K, w=rgb.shape[0], h=rgb.shape[1]
             )
             
-            if 0.9*np.sum(mask)>np.sum(gt_mask):
+            if 0.8*np.sum(mask)>np.sum(gt_mask):
+                print("tracking is not good as  it is too far")
                 self.track_good = False
-                measurement[2]=measurement[2]*0.8
+                measurement[2]=measurement[2]*0.9
                 self.tracker.update(measurement)
 
     
@@ -951,6 +933,7 @@ class FoundationPose:
             #     self.track_good = False
 
             if np.abs(xyz - center).sum() > 0.1:
+                print("tracking is not good as the difference is more than 0.1")
                 self.track_good = False
             # if np.sum(gt_mask)>4*np.sum(mask):
                 # self.track_good = False

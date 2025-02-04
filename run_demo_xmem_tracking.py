@@ -12,30 +12,14 @@ from datareader import *
 import argparse
 import pyrender
 import trimesh
-from tools import get_3d_points
+from tools import get_3d_points, evaluate_metrics
 from xmem_wrapper import *
-USE_XMEM = False
-SAVE_VIDEO=False
+
 from binary_search_adjust import *
 import numpy as np
-import open3d as o3d
+
 from scipy.spatial.transform import Rotation as R
 
-
-# repo = "isl-org/ZoeDepth"
-
-# # Zoe_N
-# model_zoe_n = torch.hub.load(repo, "ZoeD_NK", pretrained=True)
-# DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-# zoe = model_zoe_n.to(DEVICE)
-
-
-
-
-
-
-
-        
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -44,21 +28,32 @@ if __name__ == "__main__":
         "--mesh_file",
         type=str,
         # default=f"{code_dir}/demo_data/mustard0/mesh/textured_simple.obj",
-        # default=f"{code_dir}/demo_data/cola_can/mesh/32429d6d7cd54f8392f9b3056a1f26c3.obj",
-        default=f"{code_dir}/demo_data/far_away2/mesh/model.obj"
+        default=f"{code_dir}/data/CADmodels/021_bleach_cleanser/textured_simple.obj",
+        # default=f"{code_dir}/data/CADmodels/003_cracker_box/textured_simple.obj",
+        # default=f"{code_dir}/data/CADmodels/004_sugar_box/textured_simple.obj"
+        # default=f"{code_dir}/data/CADmodels/005_tomato_soup_can/textured_simple.obj"
+        
     )
     parser.add_argument(
-        # "--test_scene_dir", type=str, default=f"{code_dir}/demo_data/mustard0"
-        # "--test_scene_dir", type=str, default=f"{code_dir}/demo_data/cola_can"
-        "--test_scene_dir", type=str, default=f"{code_dir}/demo_data/far_away2"
+        # "--test_scene_dir", type=str, default=f"{code_dir}/data/mustard0"
+        "--test_scene_dir", type=str, default=f"{code_dir}/data/bleach0"
+        # "--test_scene_dir", type=str, default=f"{code_dir}/data/mustard_easy_00_02"
+        # "--test_scene_dir", type=str, default=f"{code_dir}/data/cracker_box_reorient"
+        # "--test_scene_dir", type=str, default=f"{code_dir}/data/tomato_soup_can_yalehand0"
+        # "--test_scene_dir", type=str, default=f"{code_dir}/data/sugar_box_yalehand0"
 
     )
+    parser.add_argument("--use_xmem", type=bool, default=False)
+    parser.add_argument("--save_video", type=bool, default=False)
     parser.add_argument("--est_refine_iter", type=int, default=5)
     parser.add_argument("--track_refine_iter", type=int, default=2)
     parser.add_argument("--debug", type=int, default=1)
     parser.add_argument("--debug_dir", type=str, default=f"{code_dir}/debug")
     args = parser.parse_args()
-
+    USE_XMEM = args.use_xmem
+    SAVE_VIDEO = args.save_video
+    print(f"USE_XMEM: {USE_XMEM}")
+    print(f"SAVE_VIDEO: {SAVE_VIDEO}")
     set_logging_format()
     set_seed(0)
 
@@ -86,7 +81,7 @@ if __name__ == "__main__":
         debug=debug,
         glctx=glctx,
     )
-    logging.info("estimator initialization done")
+
 
     reader = YcbineoatReader(
         video_dir=args.test_scene_dir, shorter_side=None, zfar=np.inf
@@ -100,10 +95,12 @@ if __name__ == "__main__":
         #You can change these values to get different results
         frames_to_propagate = 1000
 
-    
+    kf=PoseTracker()
+    history_poses=[]
     for i in range(len(reader.color_files)):
         logging.info(f"i:{i}")
         color = reader.get_color(i)
+        depth= reader.get_depth(i)
         if USE_XMEM:
             frame_torch, _ = image_to_torch(color, device="cuda")
         if i == 0:
@@ -111,9 +108,8 @@ if __name__ == "__main__":
             last_mask= mask
             t1=time.time()
             initial_depth= reader.get_depth(0)
-            # depth_numpy= zoe.infer_pil(color)*0.2
-            # depth_numpy=1.9*np.ones_like(initial_depth)
-            pose= binary_search_depth(est,mesh, color, mask, reader.K, depth_max=6)
+            # pose= binary_search_depth(est,mesh, color, mask, reader.K, depth_max=2)
+    
             # pose = est.register(
             #     K=reader.K,
             #     rgb=color,
@@ -121,7 +117,19 @@ if __name__ == "__main__":
             #     ob_mask=mask,
             #     iteration=args.est_refine_iter,
             # )
+            pose= reader.get_gt_pose(0)
+            est.pose_last=torch.from_numpy(pose).float().cuda()
+            xyz=pose[:3,3].reshape(3,1)
+            r=R.from_matrix(pose[:3,:3])
+            angles=r.as_euler("xyz").reshape(3, 1)
+            kf.initialize(xyz, angles)
+            measurement = np.concatenate((xyz, angles)).reshape(6, 1)
             
+            for k in range(10):
+                kf.update(measurement)
+                # pose=kf.predict_next_pose()
+            
+        
             logging.info(f"Initial pose:\n{pose}")
         
             t2=time.time()
@@ -132,7 +140,7 @@ if __name__ == "__main__":
                 prediction= processor.step(frame_torch, mask_torch[1:])
                 
             if SAVE_VIDEO:
-                output_video_path = "foundation_plus_plus.mp4"  # Specify the output video filename
+                output_video_path = "kalman_filter.mp4"  # Specify the output video filename
                 fps = 30  # Frames per second for the video
                 # Assuming 'color' is the image shape (height, width, channels)
                 # Create a VideoWriter object
@@ -143,26 +151,51 @@ if __name__ == "__main__":
             if USE_XMEM:
                 prediction = processor.step(frame_torch)
                 prediction= torch_prob_to_numpy_mask(prediction)
-            prediction= last_mask
-            # last_depth= optical_flow_get_depth(last_rgb.copy(), last_depth, last_mask, color.copy(), prediction)
+                mask=(prediction==1)
+            # prediction= last_mask
+        
+            # last_depth=render_cad_depth(pose, mesh, reader.K, 640, 480)
+            # predict=kf.predict_next_pose()
+            # xyz_predict = np.squeeze(predict["position"])
+            # orientation= predict["orientation"]
+            # predict_pose = np.eye(4)
+            # predict_pose[:3, 3] = xyz_predict
+            # matrix = R.from_euler("xyz", np.squeeze(orientation)).as_matrix()
+            # predict_pose[:3, :3] = matrix
+
+
             last_depth = np.zeros_like(last_mask)
-    
 
             pose = est.track_one(
                 rgb=color, depth=last_depth, K=reader.K, iteration=args.track_refine_iter
             )
+            # pose=est.track_one_new_without_depth(rgb=color,K=reader.K,mask=mask, iteration=args.track_refine_iter)
+            # xyz=pose[:3,3]
+            # xyz=xyz.reshape(3,1)
+            # r=R.from_matrix(pose[:3,:3])
+            # angles=r.as_euler("xyz").reshape(3, 1)
+            # measurement = np.concatenate((xyz, angles)).reshape(6, 1)
             
+            # kf.update(measurement)
+            # kf_pose=kf.get_current_pose()
+            # est.pose_last=torch.from_numpy(kf_pose).float().cuda()
+            # pose=est.track_one_new_without_depth(rgb=color,
+            #                     K=reader.K,mask=prediction, iteration=args.track_refine_iter)
             t2=time.time()
-    
+        history_poses.append(pose)
 
+
+        color_copy=color.copy()
+        # color_copy[mask]=np.array([0,255,0])
         if debug >= 1:
+            color_copy=cv2.putText(color_copy, f"frame {i}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,0,0), 2)
             center_pose = pose @ np.linalg.inv(to_origin)
-            color=cv2.putText(color, f"fps {int(1/(t2-t1))}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,0,0), 2)
+            # color_copy=cv2.putText(color_copy, f"fps {int(1/(t2-t1))}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,0,0), 2)
             vis = draw_posed_3d_box(
-                reader.K, img=color, ob_in_cam=center_pose, bbox=bbox
+                reader.K, img=color_copy, ob_in_cam=center_pose, bbox=bbox
             )
             vis = draw_xyz_axis(
-                color,
+                color_copy,
                 ob_in_cam=center_pose,
                 scale=0.1,
                 K=reader.K,
@@ -180,3 +213,11 @@ if __name__ == "__main__":
             imageio.imwrite(f"{debug_dir}/track_vis/{reader.id_strs[i]}.png", vis)
         if SAVE_VIDEO:
             video_writer.write(vis[..., ::-1])
+    data=evaluate_metrics(history_poses, reader, mesh)
+    header=["object","ADD", "ADD-S", "rotation_error_deg", "translation_error", "recall"]
+    with open(f"tmp.csv", "w") as f:
+        f.write(",".join(header)+"\n")
+        for key in header[1:]:
+            f.write(f",{data[key]}")
+        f.write("\n")
+

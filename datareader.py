@@ -118,17 +118,30 @@ class YcbineoatReader:
         return color
 
     def get_mask(self, i):
-        mask = cv2.imread(self.color_files[i].replace("rgb", "masks"), -1)
-        if len(mask.shape) == 3:
-            for c in range(3):
-                if mask[..., c].sum() > 0:
-                    mask = mask[..., c]
-                    break
-        mask = (
-            cv2.resize(mask, (self.W, self.H), interpolation=cv2.INTER_NEAREST)
-            .astype(bool)
-            .astype(np.uint8)
-        )
+        try:
+            mask = cv2.imread(self.color_files[i].replace("rgb", "masks"), -1)
+            if len(mask.shape) == 3:
+                for c in range(3):
+                    if mask[..., c].sum() > 0:
+                        mask = mask[..., c]
+                        break
+            mask = (
+                cv2.resize(mask, (self.W, self.H), interpolation=cv2.INTER_NEAREST)
+                .astype(bool)
+                .astype(np.uint8)
+            )
+        except:
+            mask = cv2.imread(self.color_files[i].replace("rgb", "gt_mask"), -1)
+            if len(mask.shape) == 3:
+                for c in range(3):
+                    if mask[..., c].sum() > 0:
+                        mask = mask[..., c]
+                        break
+            mask = (
+                cv2.resize(mask, (self.W, self.H), interpolation=cv2.INTER_NEAREST)
+                .astype(bool)
+                .astype(np.uint8)
+            )
         return mask
 
     def get_depth(self, i):

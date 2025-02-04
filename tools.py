@@ -4,11 +4,24 @@ import matplotlib.pyplot as plt
 import open3d as o3d
 import cv2
 from Utils import *
+from scipy.spatial.distance import cdist
 import torch
 from scipy.spatial import ConvexHull
+from filterpy.kalman import KalmanFilter
+
+from scipy.spatial.transform import Rotation
+from bop_toolkit_lib import pose_error
+
+
+from bop_toolkit_lib import misc
+from bop_toolkit_lib import visibility
 
 def render_rgbd(cad_model, object_pose, K, W, H):
-    pose_tensor= torch.from_numpy(object_pose).float().to("cuda")
+    if type(object_pose) is np.ndarray:
+        pose_tensor = torch.from_numpy(object_pose).float().to("cuda")
+    else:
+        pose_tensor = object_pose
+    # pose_tensor= torch.from_numpy(object_pose).float().to("cuda")
     mesh_tensors = make_mesh_tensors(cad_model)
     glctx =  dr.RasterizeCudaContext()
     rgb_r, depth_r, normal_r = nvdiffrast_render(K=K, H=H, W=W, ob_in_cams=pose_tensor, context='cuda', get_normal=False, glctx=glctx, mesh_tensors=mesh_tensors, output_size=[H,W], use_light=True)
@@ -17,27 +30,12 @@ def render_rgbd(cad_model, object_pose, K, W, H):
     mask_r = (depth_r > 0)
     return rgb_r, depth_r, mask_r
 
-def render_image(mesh_model, camera_pose, camera_intrinsics, image_size):
-    # Render image
-    mesh_model.visual.face_colors = [200, 200, 250, 100]
-    image = trimesh.scene.CameraScene(camera=camera_intrinsics, bg_color=(255, 255, 255, 255), resolution=(image_size, image_size))
-    image.add_geometry(mesh_model)
-    image.set_camera(camera_pose)
-    image = image.save_image()
-    return image
 
 
-import numpy as np
-from filterpy.kalman import KalmanFilter
-from filterpy.common import Q_discrete_white_noise
 
-import numpy as np
-from filterpy.kalman import KalmanFilter
-from filterpy.common import Q_discrete_white_noise
-from scipy.spatial.transform import Rotation
-from scipy.spatial import ConvexHull
+
 class PoseTracker:
-    def __init__(self, dt=0.1):
+    def __init__(self, dt=0.001):
         """
         Initialize a 6D pose tracker (position + orientation) with Kalman Filter
         dt: time step between measurements
@@ -63,24 +61,24 @@ class PoseTracker:
         self.kf.H[3:6, 6:9] = np.eye(3)  # Orientation measurements
         
         # Measurement noise
-        self.kf.R = np.eye(6)
-        self.kf.R[0:3, 0:3] *= 0.1  # Position measurement noise
-        self.kf.R[3:6, 3:6] *= 0.2  # Orientation measurement noise
+        # self.kf.R = np.eye(6)
+        # self.kf.R[0:3, 0:3] *= 0.1  # Position measurement noise
+        # self.kf.R[3:6, 3:6] *= 0.2  # Orientation measurement noise
         
         # Process noise
-        pos_vel_noise = Q_discrete_white_noise(dim=2, dt=dt, var=0.1)
-        angle_rate_noise = Q_discrete_white_noise(dim=2, dt=dt, var=0.2)
+        # pos_vel_noise = Q_discrete_white_noise(dim=2, dt=dt, var=0.1)
+        # angle_rate_noise = Q_discrete_white_noise(dim=2, dt=dt, var=0.2)
         
-        self.kf.Q = np.zeros((12, 12))
-        # Apply noise to position-velocity states
-        for i in range(3):
-            self.kf.Q[i*2:(i+1)*2, i*2:(i+1)*2] = pos_vel_noise
-        # Apply noise to orientation-angular rate states
-        for i in range(3):
-            self.kf.Q[(i*2+6):(i*2+8), (i*2+6):(i*2+8)] = angle_rate_noise
+        # self.kf.Q = np.zeros((12, 12))
+        # # Apply noise to position-velocity states
+        # for i in range(3):
+        #     self.kf.Q[i*2:(i+1)*2, i*2:(i+1)*2] = pos_vel_noise
+        # # Apply noise to orientation-angular rate states
+        # for i in range(3):
+        #     self.kf.Q[(i*2+6):(i*2+8), (i*2+6):(i*2+8)] = angle_rate_noise
         
         # Initial state covariance
-        self.kf.P = np.eye(12) * 1000
+        self.kf.P = np.eye(12) * 100000
         
         self.is_initialized = False
         
@@ -101,6 +99,33 @@ class PoseTracker:
         self.kf.x[6:9] = self.normalize_angles(orientation)
     
         self.is_initialized = True
+
+    def get_current_pose(self):
+        pose=np.eye(4)
+        pose[:3, 3] = np.squeeze(self.kf.x[0:3])
+        pose[:3, :3] = Rotation.from_euler("xyz", np.squeeze(self.kf.x[6:9])).as_matrix()
+        return pose
+
+    def predict_next_pose(self):
+        """
+        Predict the next pose without updating the Kalman filter state.
+        Returns: predicted position, orientation, velocity, and angular rates
+        """
+        if not self.is_initialized:
+            raise ValueError("Tracker not initialized!")
+        
+        # Compute the predicted state using the state transition matrix
+        predicted_state = self.kf.F @ self.kf.x
+        
+        # Normalize the predicted orientation angles
+        predicted_state[6:9] = self.normalize_angles(predicted_state[6:9])
+        
+        return {
+            'position': predicted_state[0:3],
+            'orientation': predicted_state[6:9],
+            'velocity': predicted_state[3:6],
+            'angular_rates': predicted_state[9:12]
+        }
         
     def update(self, measurement=None):
         """
@@ -136,7 +161,7 @@ class PoseTracker:
             self.kf.P = (np.eye(12) - K @ self.kf.H) @ self.kf.P
             
         # Return current pose estimate
-        # print("kf.x: ", self.kf.x, self.kf.x.shape)
+    
         return {
             'position': self.kf.x[0:3],
             'orientation': self.normalize_angles(self.kf.x[6:9]),
@@ -152,6 +177,27 @@ class PoseTracker:
             'position_std': np.sqrt(np.diag(self.kf.P)[0:3]),
             'orientation_std': np.sqrt(np.diag(self.kf.P)[6:9])
         }
+    
+def evaluate_metrics(history_poses,reader, mesh):
+    """
+    Evaluate the tracking performance using the ground truth poses.
+    history_poses: List of estimated poses at each frame
+    reader: DatasetReader object
+    Returns: List of errors (rotation, translation) for each frame
+    """
+    # errors = []
+    vertices = mesh.vertices
+    pairwise_distances = cdist(vertices, vertices)  # Use scipy.spatial.distance.cdist
+    diameter_exact = np.max(pairwise_distances)
+    data={"ADD":0, "ADD-S":0,  "rotation_error_deg":0, "translation_error":0, "mspd":0,"mssd":0, "recall":0, "AR_mspd":0, "AR_mssd":0, "AR_vsd":0}
+    for i, pose in enumerate(history_poses):
+        gt_pose = reader.get_gt_pose(i)
+        tmp_data= evaluate_pose(gt_pose, pose, mesh, diameter_exact, reader.K)
+        for key in tmp_data:
+            data[key]+=tmp_data[key]
+    for key in data:
+        data[key]/=len(history_poses)
+    return data
     
 def demo_tracking():
     """
@@ -189,36 +235,76 @@ def demo_tracking():
         print(f"Position uncertainty: {uncertainty}\n")
         
     return positions, uncertainties
+import numpy as np
 
 
 
-def render_cad_depth(pose, mesh_model,K,w=640,h=480):
 
-    # Load the mesh model and apply the center pose transformation
+def render_cad_depth_nvidia(pose, mesh_model, K, w=640, h=480):
+    """
+    Render depth image from a CAD model using the given camera pose and intrinsic matrix.
+
+    Args:
+        pose (np.ndarray): 4x4 camera pose matrix (world to camera transformation).
+        mesh_model (np.ndarray): Nx3 array of 3D mesh vertices.
+        K (np.ndarray): 3x3 camera intrinsic matrix.
+        w (int): Width of the output depth image.
+        h (int): Height of the output depth image.
+
+    Returns:
+        np.ndarray: Depth image of size (h, w).
+    """
+    pose_tensor= torch.from_numpy(pose).float().to("cuda")
+    mesh_tensors = make_mesh_tensors(mesh_model)
+    glctx =  dr.RasterizeCudaContext()
+    depth_r= nvdiffrast_render_depthonly(K=K, H=h, W=w, ob_in_cams=pose_tensor, context='cuda', glctx=glctx, mesh_tensors=mesh_tensors, output_size=[h,w])
+    depth_r = depth_r.squeeze()
+    return depth_r.cpu().numpy()
+
+def render_cad_depth(pose, mesh_model, K, w=640, h=480):
+    """
+    Render a depth map using a CAD model and its pose.
     
+    Parameters:
+    pose: 4x4 numpy array - Transformation matrix
+    mesh_model: Trimesh object - CAD model
+    K: 3x3 numpy array - Camera intrinsic matrix
+    w, h: int - Width and height of the depth image
+
+    Returns:
+    depth_map: numpy array of shape (h, w) - Rendered depth map
+    """
     vertices = np.array(mesh_model.vertices)
-    hull = ConvexHull(vertices)
-    vertices = vertices[hull.vertices]
-    #random sample 1000 points
-    # idx = np.random.choice(vertices.shape[0], 1000, replace=False)
-    # vertices = vertices[idx]
-    # Transform vertices with the center pose
+    # Transform vertices
     transformed_vertices = (pose @ np.hstack((vertices, np.ones((vertices.shape[0], 1)))).T).T[:, :3]
 
-    # Project vertices to the 2D plane using the intrinsic matrix K
+    # Project vertices to 2D
     projected_points = (K @ transformed_vertices.T).T
-    projected_points = projected_points[:, :2] / projected_points[:, 2:3]  # Normalize by z
+    projected_points = projected_points[:, :2] / projected_points[:, 2:3]
 
-    # Initialize a depth map and project depth values into it
-    image_size = (w, h)
-    depth_map = np.zeros(image_size, dtype=np.float32)
-    for i, point in enumerate(projected_points):
-        x, y = int(point[0]), int(point[1])
-        if 0 <= x < image_size[1] and 0 <= y < image_size[0]:
-            depth_map[y, x] = transformed_vertices[i, 2]
+    # Round projected points to nearest pixel
+    pixel_coords = np.round(projected_points).astype(int)
+
+    # Clip points that fall outside the image dimensions
+    valid = (
+        (pixel_coords[:, 0] >= 0) & (pixel_coords[:, 0] < w) &
+        (pixel_coords[:, 1] >= 0) & (pixel_coords[:, 1] < h)
+    )
+    pixel_coords = pixel_coords[valid]
+    depths = transformed_vertices[valid, 2]
+
+    # Compute the depth map using vectorized indexing
+    depth_map = np.full((h, w), np.inf, dtype=np.float32)
+    for i in range(len(pixel_coords)):
+        x, y = pixel_coords[i]
+        depth_map[y, x] = min(depth_map[y, x], depths[i])
+
+    # Replace inf with 0 (background)
+    depth_map[depth_map == np.inf] = 0
     return depth_map
 
-
+    # Extract rotation and translation from the pose matrix
+    
 def render_cad_mask(pose, mesh_model, K, w=640, h=480):
     """
     Renders the binary mask of the object based on its pose, CAD model, and camera parameters.
@@ -263,96 +349,6 @@ def to_homo(pts):
     assert len(pts.shape)==2, f'pts.shape: {pts.shape}'
     homo = np.concatenate((pts, np.ones((pts.shape[0],1))),axis=-1)
     return homo
-
-
-def create_object_mask(mesh_model, pose, intrinsics, image_shape):
-    """
-    Generate a binary mask of the object given its pose and camera intrinsics.
-
-    Parameters:
-    - mesh_model: Trimesh, the 3D model of the object.
-    - pose: np.ndarray, 4x4 transformation matrix representing the object's pose relative to the camera.
-    - intrinsics: np.ndarray, 3x3 camera intrinsic matrix.
-    - image_shape: tuple, shape of the output image mask (height, width).
-
-    Returns:
-    - mask: np.ndarray, binary mask where the object is set to 1.
-    """
-    # Get vertices of the object in the world space
-    vertices = mesh_model.vertices
-    vertices = np.c_[vertices, np.ones((vertices.shape[0], 1))]  # Convert to homogeneous coordinates
-
-    # Apply the pose transformation
-    vertices_camera = (pose @ vertices.T).T  # Transform vertices to camera coordinates
-
-    # Project the 3D points to 2D image coordinates
-    vertices_2d = (intrinsics @ vertices_camera[:, :3].T).T
-    vertices_2d[:, :2] /= vertices_2d[:, 2:3]  # Divide by depth to get 2D points
-
-    # Initialize mask
-    mask = np.zeros(image_shape, dtype=np.uint8)
-
-    # Remove points that fall outside the image frame
-    valid_points = (vertices_2d[:, 0] >= 0) & (vertices_2d[:, 0] < image_shape[1]) & \
-                (vertices_2d[:, 1] >= 0) & (vertices_2d[:, 1] < image_shape[0])
-    vertices_2d = vertices_2d[valid_points]
-
-    # Get the pixel coordinates of the projected vertices
-    pixel_coords = vertices_2d[:, :2].astype(int)
-
-    # Fill mask using the object's convex hull in 2D
-    hull = trimesh.path.polygons.convex_hull(pixel_coords)
-    for i in range(image_shape[0]):
-        for j in range(image_shape[1]):
-            if hull.contains_point([j, i]):
-                mask[i, j] = 1
-
-    return mask
-
-def create_mask_from_3d_bbox(img_shape, bbox, ob_in_cam, intrinsic_matrix):
-    
-    min_xyz=bbox.min(axis=0)
-    max_xyz=bbox.max(axis=0)
-    xmin, ymin, zmin = min_xyz
-    xmax, ymax, zmax = max_xyz
-    img=np.zeros(img_shape)
-    def draw_line3d(start,end,mask,line_color=(255),linewidth=2):
-        pts = np.stack((start,end),axis=0).reshape(-1,3)
-        pts = (ob_in_cam@to_homo(pts).T).T[:,:3]   #(2,3)
-        projected = (intrinsic_matrix@pts.T).T
-        uv = np.round(projected[:,:2]/projected[:,2].reshape(-1,1)).astype(int)   #(2,2)
-        mask = cv2.line(mask, uv[0].tolist(), uv[1].tolist(), color=line_color, thickness=linewidth, lineType=cv2.LINE_AA)
-        return mask
-    for y in [ymin,ymax]:
-        for z in [zmin,zmax]:
-            start = np.array([xmin,y,z])
-            end = start+np.array([xmax-xmin,0,0])
-            img = draw_line3d(start,end,img)
-
-    for x in [xmin,xmax]:
-        for z in [zmin,zmax]:
-            start = np.array([x,ymin,z])
-            end = start+np.array([0,ymax-ymin,0])
-            img = draw_line3d(start,end,img)
-
-    for x in [xmin,xmax]:
-        for y in [ymin,ymax]:
-            start = np.array([x,y,zmin])
-            end = start+np.array([0,0,zmax-zmin])
-            img = draw_line3d(start,end,img)
-    # convert img to binary
-    img=(img/255).astype(np.uint8)
-    # Find contours of the drawn boundary
-    contours, _ = cv2.findContours(img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-    # Fill the area inside the contours on the original mask
-  
-
-    for contour in contours:
-        cv2.drawContours(img, [contour], -1, color=(255), thickness=cv2.FILLED)
-
-
-    return img
 
 def compute_iou(mask1, mask2):
     """
@@ -481,38 +477,96 @@ def get_pose_icp(self, pointcloud1, pointcloud2):
 
 
 
-def area_contained_percentage(mask1, mask2):
+#"vsd_taus": list(np.arange(0.05, 0.51, 0.05)),
+def vsd(
+    depth_gt,
+    depth_est,
+    K,
+    delta,
+    taus,
+    diameter,
+    cost_type="step",
+):
+    """Visible Surface Discrepancy -- by Hodan, Michel et al. (ECCV 2018).
+
+    :param R_est: 3x3 ndarray with the estimated rotation matrix.
+    :param t_est: 3x1 ndarray with the estimated translation vector.
+    :param R_gt: 3x3 ndarray with the ground-truth rotation matrix.
+    :param t_gt: 3x1 ndarray with the ground-truth translation vector.
+    :param depth_test: hxw ndarray with the test depth image.
+    :param K: 3x3 ndarray with an intrinsic camera matrix.
+    :param delta: Tolerance used for estimation of the visibility masks.
+    :param taus: A list of misalignment tolerance values.
+    :param normalized_by_diameter: Whether to normalize the pixel-wise distances
+        by the object diameter.
+    :param diameter: Object diameter.
+    :param renderer: Instance of the Renderer class (see renderer.py).
+    :param obj_id: Object identifier.
+    :param cost_type: Type of the pixel-wise matching cost:
+        'tlinear' - Used in the original definition of VSD in:
+            Hodan et al., On Evaluation of 6D Object Pose Estimation, ECCVW'16
+        'step' - Used for SIXD Challenge 2017 onwards.
+    :return: List of calculated errors (one for each misalignment tolerance).
     """
-    Calculate the percentage of the area of mask2 that is contained within mask1.
+    # Render depth images of the model in the estimated and the ground-truth pose.
+    fx, fy, cx, cy = K[0, 0], K[1, 1], K[0, 2], K[1, 2]
 
-    Parameters:
-    - mask1: np.ndarray, the first binary mask (reference mask).
-    - mask2: np.ndarray, the second binary mask (target mask).
+    # Convert depth images to distance images.
+    dist_gt = misc.depth_im_to_dist_im_fast(depth_gt, K)
+    dist_est = misc.depth_im_to_dist_im_fast(depth_est, K)
 
-    Returns:
-    - percentage: float, percentage of the area of mask2 that is within mask1.
-    """
-    # Ensure masks are binary
-    mask1 = mask1.astype(bool)
-    mask2 = mask2.astype(bool)
+    # Visibility mask of the model in the ground-truth pose.
+    visib_gt = visibility.estimate_visib_mask_gt(
+        dist_gt,dist_gt, delta, visib_mode="bop19"
+    )
 
-    # Calculate intersection between mask1 and mask2
-    intersection = np.logical_and(mask1, mask2).sum()
+    # Visibility mask of the model in the estimated pose.
+    visib_est = visibility.estimate_visib_mask_est(
+        dist_gt, dist_est, visib_gt, delta, visib_mode="bop19"
+    )
+
+    # Intersection and union of the visibility masks.
+    visib_inter = np.logical_and(visib_gt, visib_est)
+    visib_union = np.logical_or(visib_gt, visib_est)
     
-    # Calculate the area of mask2
-    area_mask2 = mask2.sum()
-    
-    # Calculate percentage
-    percentage = (intersection / area_mask2) * 100 if area_mask2 > 0 else 0.0
-    return percentage
+
+    visib_union_count = visib_union.sum()
+    visib_comp_count = visib_union_count - visib_inter.sum()
+
+    # Pixel-wise distances.
+    dists = np.abs(dist_gt[visib_inter] - dist_est[visib_inter])
+    normalized_by_diameter = True
+    # Normalization of pixel-wise distances by object diameter.
+    if normalized_by_diameter:
+        dists /= diameter
+
+    # Calculate VSD for each provided value of the misalignment tolerance.
+    if visib_union_count == 0:
+        errors = [1.0] * len(taus)
+    else:
+        errors = []
+        for tau in taus:
+            # Pixel-wise matching cost.
+            if cost_type == "step":
+                costs = dists >= tau
+            elif cost_type == "tlinear":  # Truncated linear function.
+                costs = dists / tau
+                costs[costs > 1.0] = 1.0
+            else:
+                raise ValueError("Unknown pixel matching cost.")
+
+            e = (np.sum(costs) + visib_comp_count) / float(visib_union_count)
+            errors.append(e)
+
+    return errors
 
 
+#   "vsd": [0.3],
+#         "mssd": [0.2],
+#         "mspd": [10],
 
-import numpy as np
-from scipy.spatial.transform import Rotation
-from sklearn.metrics import auc
 # thresholds=np.linspace(0.05, 0.5, 10)
-def evaluate_pose(gt_pose, est_pose, model_points, diameter, thresholds=np.arange(0.05, 0.51, 0.05)):
+def evaluate_pose(gt_pose, est_pose, mesh, diameter,K ):
     """
     Evaluate 6D pose estimation performance using ADD and ADD-S metrics.
     
@@ -526,9 +580,6 @@ def evaluate_pose(gt_pose, est_pose, model_points, diameter, thresholds=np.arang
     Returns:
         dict: Dictionary containing various evaluation metrics
     """
-    # print("gt_pose: ", gt_pose)
-    # print("est_pose: ", est_pose)
-    
 
     def transform_points(points, pose):
         """Transform 3D points using pose matrix."""
@@ -548,60 +599,104 @@ def evaluate_pose(gt_pose, est_pose, model_points, diameter, thresholds=np.arang
         return np.mean(distances)
 
     # Transform model points using ground truth and estimated poses
-    gt_transformed = transform_points(model_points, gt_pose)
-    est_transformed = transform_points(model_points, est_pose)
+    gt_transformed = transform_points(mesh.vertices , gt_pose)
+    est_transformed = transform_points(mesh.vertices , est_pose)
 
     # Compute ADD and ADD-S
     add_value = compute_add(gt_transformed, est_transformed)
     adds_value = compute_adds(gt_transformed, est_transformed)
 
-    # Compute success rates and AUC for different thresholds
-    add_success_rates = []
-    adds_success_rates = []
+    # # Compute success rates and AUC for different thresholds
+    # add_success_rates = []
+    # adds_success_rates = []
+    # # print("thresholds: ", thresholds)
+    # # print("add_value: ", add_value)
+    # # print("adds_value: ", adds_value)
     
-    for threshold in thresholds:
-        # Normalize threshold by object diameter
-        normalized_threshold = threshold * diameter
+    # for threshold in thresholds:
+    #     # Normalize threshold by object diameter
+
+    #     normalized_threshold = threshold * diameter
         
-        # Compute ADD success rate
-        add_success = (add_value < normalized_threshold)
-        add_success_rates.append(float(add_success))
+    #     # Compute ADD success rate
+    #     add_success = (add_value < normalized_threshold)
+    #     add_success_rates.append(float(add_success))
         
-        # Compute ADD-S success rate
-        adds_success = (adds_value < normalized_threshold)
-        adds_success_rates.append(float(adds_success))
+    #     # Compute ADD-S success rate
+    #     adds_success = (adds_value < normalized_threshold)
+    #     adds_success_rates.append(float(adds_success))
     # print("add_success_rates: ", add_success_rates)
     # print("diameter: ", diameter)
     # Compute AUC (normalize thresholds to 0-1 range for AUC computation)
-    normalized_thresholds = thresholds / thresholds[-1]
-    add_auc = auc(normalized_thresholds, add_success_rates)
-    adds_auc = auc(normalized_thresholds, adds_success_rates)
+    # normalized_thresholds = thresholds / thresholds[-1]
+    # add_auc = auc(normalized_thresholds, add_success_rates)
+    # adds_auc = auc(normalized_thresholds, adds_success_rates)
 
     # Extract rotation error
     gt_R = gt_pose[:3, :3]
     est_R = est_pose[:3, :3]
     R_diff = np.dot(est_R, gt_R.T)
-    rotation_error = np.arccos((np.trace(R_diff) - 1) / 2) * 180 / np.pi
+    trace_value = np.trace(R_diff)
+    theta_rad = np.arccos(np.clip((trace_value - 1) / 2, -1.0, 1.0))  # Avoid numerical errors
+    rotation_error = np.degrees(theta_rad)  # Convert to degrees
+    depth_gt=render_cad_depth_nvidia(gt_pose, mesh, K)
+    depth_est=render_cad_depth_nvidia(est_pose, mesh, K)
 
+    translation_error = np.linalg.norm(gt_pose[:3, 3] - est_pose[:3, 3])
+    taus=list(np.arange(0.05, 0.51, 0.05))
+    delta=15
+    # taus=[0.5]
+    theta=np.arange(0.05, 0.51, 0.05)
+
+    vsd_errors=vsd(depth_gt, depth_est, K, delta, taus, diameter, cost_type="step")
+    AR_vsd =0
+    for err in vsd_errors:
+        if err<=0.3:
+            AR_vsd+=1
+    AR_vsd/=10
+    # vsd_error=np.mean(vsd_errors)
+    error_mspd=pose_error.mspd(est_pose[:3, :3], est_pose[:3, 3].reshape(3,1),gt_pose[:3, :3], gt_pose[:3, 3].reshape(3,1), K, mesh.vertices, [{"R": np.eye(3), "t": np.array([[0, 0, 0]]).T}])
+    error_mssd=pose_error.mssd(est_pose[:3, :3], est_pose[:3, 3].reshape(3,1),gt_pose[:3, :3], gt_pose[:3, 3].reshape(3,1), mesh.vertices, [{"R": np.eye(3), "t": np.array([[0, 0, 0]]).T}])
+    AR_mspd =0 
+    AR_mssd =0
+    for th in np.arange(5,51,5):
+        if error_mspd<=th:
+            AR_mspd+=1
+    AR_mspd/=10
+    for th in theta*diameter:
+        if error_mssd<=th:
+            AR_mssd+=1
+    AR_mssd/=10
+    
     # Extract translation error
     translation_error = np.linalg.norm(gt_pose[:3, 3] - est_pose[:3, 3])
     res={
         'ADD': add_value,
         'ADD-S': adds_value,
-        'ADD_AUC': add_auc,
-        'ADD-S_AUC': adds_auc,
         'rotation_error_deg': rotation_error,
         'translation_error': translation_error,
-        'recall':np.sum(add_success_rates)/len(add_success_rates),
+        "recall": (AR_mspd+AR_mssd+AR_vsd)/3,
+        "mspd": error_mspd,
+        "mssd": error_mssd,
+        "AR_vsd": AR_vsd,
+        "AR_mspd": AR_mspd,
+        "AR_mssd": AR_mssd    
         # 'add_success_rates': add_success_rates,
         # 'adds_success_rates': adds_success_rates,
         # 'thresholds': thresholds
     }
     print("res: ", res)
-    # exit()
     return res
     
-import numpy as np
+
+# def evaluate_pose_bop(gt_pose, est_pose, K, model_points):
+#     syms=[{"R": np.eye(3), "t": np.array([[0, 0, 0]]).T}]
+#     Rgt=gt_pose[:3, :3]
+#     tgt=gt_pose[:3, 3]
+#     Rest=est_pose[:3, :3]
+#     test=est_pose[:3, 3]
+#     err_mspd = pose_error.compute_mspd( Rest, test,Rgt, tgt,K, model_points, syms)
+#     err_mssd = pose_error.compute_mssd( Rest, test,Rgt, tgt, model_points, syms)
 
 def save_poses_to_txt(file_path, poses):
     """
