@@ -36,13 +36,15 @@ class RefineNet(nn.Module):
         # else:
         #     norm_layer = None
         #     norm_layer1d = None
-
+    
         self.encodeA = nn.Sequential(
             ConvBNReLU(C_in=c_in,C_out=64,kernel_size=7,stride=2, norm_layer=norm_layer),
             ConvBNReLU(C_in=64,C_out=128,kernel_size=3,stride=2, norm_layer=norm_layer),
             ResnetBasicBlock(128,128,bias=True, norm_layer=norm_layer),
             ResnetBasicBlock(128,128,bias=True, norm_layer=norm_layer),
         )
+        
+        
 
         self.encodeAB = nn.Sequential(
             ResnetBasicBlock(256,256,bias=True, norm_layer=norm_layer),

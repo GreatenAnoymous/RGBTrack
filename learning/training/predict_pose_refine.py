@@ -25,8 +25,6 @@ USE_TRT =False
 
 @torch.inference_mode()
 def make_crop_data_batch(render_size, ob_in_cams, mesh, rgb, depth, K, crop_ratio, xyz_map, normal_map=None, mesh_diameter=None, cfg=None, glctx=None, mesh_tensors=None, dataset=None):
-    logging.info("Welcome to make_crop_data_batch")
-
     H, W = depth.shape[:2]
     args = []
     method = 'box_3d'
@@ -268,12 +266,12 @@ class PoseRefinePredictor:
         # ob_centered_in_cams = ob_in_cams
         mesh_centered = mesh
 
-        logging.info(f'self.cfg.use_normal:{self.cfg.use_normal}')
+        
         if not self.cfg.use_normal:
             normal_map = None
 
         crop_ratio = self.cfg['crop_ratio']
-        logging.info(f"trans_normalizer:{self.cfg['trans_normalizer']}, rot_normalizer:{self.cfg['rot_normalizer']}")
+    
         bs = 1024
 
         # B_in_cams = torch.as_tensor(ob_centered_in_cams, device='cuda', dtype=torch.float)
@@ -291,8 +289,6 @@ class PoseRefinePredictor:
 
         for iter_idx in range(iteration):
             start_iter = time.time()
-            
-            logging.info("making cropped data")
             torch.cuda.synchronize()
             start_crop = time.time()
             pose_data = make_crop_data_batch(
@@ -302,7 +298,7 @@ class PoseRefinePredictor:
             )
             torch.cuda.synchronize()
             end_crop = time.time()
-            logging.info(f"Time for cropping data: {end_crop - start_crop:.4f} seconds")
+            # logging.info(f"Time for cropping data: {end_crop - start_crop:.4f} seconds")
             
             B_in_cams = []
             for b in range(0, pose_data.rgbAs.shape[0], bs):
