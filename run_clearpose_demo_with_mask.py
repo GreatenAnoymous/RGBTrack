@@ -62,14 +62,14 @@ def infer_online(args):
     logging.info("estimator initialization done")
 
     #object_id = 202, 55
-    object_id = 202
+    # object_id = 202
     # object_id = 201
-    # object_id = 205
+    object_id = 206
     # object_id = 60
     reader = ClosePoseReader(
         video_dir=args.test_scene_dir, object_id=object_id , shorter_side=None, zfar=np.inf)
     reader.color_files=sorted(reader.color_files)
-    start=00
+    start=300
     for i in range(start,len(reader.color_files)):
     
         logging.info(f'i:{i}')
@@ -85,7 +85,7 @@ def infer_online(args):
         if i == start:
             if SAVE_VIDEO:
                 # Initialize VideoWriter
-                output_video_path = "tracking_no_depth.mp4"  # Specify the output video filename
+                output_video_path = "tracking_mayu_fp.mp4"  # Specify the output video filename
                 fps = 30  # Frames per second for the video
 
                 # Assuming 'color' is the image shape (height, width, channels)
@@ -131,10 +131,11 @@ def infer_online(args):
                 # prediction= F.interpolate(prediction.unsqueeze(0), scale_factor=2, mode='nearest').squeeze(0)
                 prediction= torch_prob_to_numpy_mask(prediction)
                 mask=(prediction==1)
-            pose = est.track_one_new_without_depth(rgb=color,
-                                K=reader.K,mask=mask, iteration=args.track_refine_iter)
-            # pose = est.track_one(rgb=color, depth=depth, 
-            #                      K=reader.K, iteration=args.track_refine_iter)
+                mask= reader.get_mask(i).astype(bool)
+            # pose = est.track_one_new_without_depth(rgb=color,
+            #                     K=reader.K,mask=mask, iteration=args.track_refine_iter)
+            pose = est.track_one(rgb=color, depth=depth, 
+                                 K=reader.K, iteration=args.track_refine_iter)
             # pose = est.track_one_new(rgb=color, depth=depth, 
             #                     K=reader.K,mask=mask, iteration=args.track_refine_iter)
             # pose = reader.get_gt_pose(i)
@@ -182,13 +183,14 @@ def infer_online(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     code_dir = os.path.dirname(os.path.realpath(__file__))
+    parser.add_argument('--mesh_file', type=str, default=f'{code_dir}/demo_data/closepose/closepose_model/Mayo/Mayo.obj')
     # parser.add_argument('--mesh_file', type=str, default=f'{code_dir}/demo_data/closepose/closepose_model/OrangeJuice/OrangeJuice.obj')
     # parser.add_argument('--mesh_file', type=str, default=f'{code_dir}/demo_data/closepose/closepose_model/BBQSauce/BBQSauce.obj')
-    parser.add_argument('--mesh_file', type=str, default=f'{code_dir}/demo_data/mustard0/mesh/textured_simple.obj')
+    # parser.add_argument('--mesh_file', type=str, default=f'{code_dir}/demo_data/mustard0/mesh/textured_simple.obj')
     # parser.add_argument('--mesh_file', type=str, default=f'{code_dir}/demo_data/closepose/closepose_model/wine_cup_1/wine_cup_1.obj')
     # parser.add_argument('--mesh_file', type=str, default=f'{code_dir}/demo_data/closepose/closepose_model/005_tomato_soup_can/005_tomato_soup_can.obj')
     parser.add_argument('--test_scene_dir', type=str,
-                        default=f'{code_dir}/demo_data/closepose/set8/scene1/')
+                        default=f'{code_dir}/demo_data/closepose/set8/scene2/')
     parser.add_argument('--est_refine_iter', type=int, default=5)
     parser.add_argument('--track_refine_iter', type=int, default=2)
     parser.add_argument('--debug', type=int, default=1)

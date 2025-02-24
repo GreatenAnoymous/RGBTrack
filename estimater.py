@@ -452,6 +452,7 @@ class FoundationPose:
 
         best_pose = poses[0] @ self.get_tf_to_centered_mesh()
         self.pose_last = poses[0]
+        logging.info(f"last pose:{self.pose_last}")  
         self.xyz = self.pose_last[:3, 3]
         r = R.from_matrix(self.pose_last[:3, :3].data.cpu().numpy())
         euler_angles = r.as_euler("xyz").reshape(3, 1)
@@ -677,7 +678,7 @@ class FoundationPose:
             self.pose_last = torch.tensor(predict_pose, device="cuda", dtype=torch.float)
             self.track_good = False
             self.mask_last = mask
-            print("lost tracking, Kalman filter update !!!!!!!!")
+           
             return (
                 (self.pose_last @ self.get_tf_to_centered_mesh())
                 .data.cpu()

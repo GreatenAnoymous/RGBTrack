@@ -710,6 +710,7 @@ class ClosePoseReader(YcbineoatReader):
         self.K[:2] *= self.downscale
         self.gt_pose_files = None
         self.videoname_to_object = None
+        self.initial_pose=None
 
     def get_color(self, i):
         color = imageio.imread(self.color_files[i])[..., :3]
@@ -790,8 +791,22 @@ class ClosePoseReader(YcbineoatReader):
         return super().get_video_name()
 
     def get_gt_pose(self, i):
-        pass
+        if i==0:
+            return self.initial_pose
+        initial_RT=self.metadata[self.id_str[0]][0][0][5]
+        current_RT=self.metadata[self.id_str[i]][0][0][5]
+     
 
+        camera_pose_initial = np.eye(4)    
+        camera_pose_initial[:3, :3] = initial_RT[:3,:3]
+        camera_pose_initial[:3, 3] = initial_RT[:3,3]
+        camera_pose_current = np.eye(4)
+        camera_pose_current[:3, :3] = current_RT[:3,:3]
+        camera_pose_current[:3, 3] = current_RT[:3,3]
+
+        pose=np.linalg.inv(camera_pose_current) @ camera_pose_initial @self.initial_pose
+        return pose
+        
     def get_depth(self, i):
         depth_file_name = f"{i:06d}-depth.png"
         depth = cv2.imread(os.path.join(self.video_dir, depth_file_name), -1) / 1e3

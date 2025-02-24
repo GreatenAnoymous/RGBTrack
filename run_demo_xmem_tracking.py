@@ -103,31 +103,31 @@ if __name__ == "__main__":
         depth= reader.get_depth(i)
         if USE_XMEM:
             frame_torch, _ = image_to_torch(color, device="cuda")
-        if i == 0:
+        if i==0:
             mask = reader.get_mask(0).astype(bool)
             last_mask= mask
             t1=time.time()
             initial_depth= reader.get_depth(0)
             # pose= binary_search_depth(est,mesh, color, mask, reader.K, depth_max=2)
     
-            # pose = est.register(
-            #     K=reader.K,
-            #     rgb=color,
-            #     depth=initial_depth,
-            #     ob_mask=mask,
-            #     iteration=args.est_refine_iter,
-            # )
-            pose= reader.get_gt_pose(0)
-            est.pose_last=torch.from_numpy(pose).float().cuda()
-            xyz=pose[:3,3].reshape(3,1)
-            r=R.from_matrix(pose[:3,:3])
-            angles=r.as_euler("xyz").reshape(3, 1)
-            kf.initialize(xyz, angles)
-            measurement = np.concatenate((xyz, angles)).reshape(6, 1)
+            pose = est.register(
+                K=reader.K,
+                rgb=color,
+                depth=initial_depth,
+                ob_mask=mask,
+                iteration=args.est_refine_iter,
+            )
+            # pose= reader.get_gt_pose(0)
+            # est.pose_last=torch.from_numpy(pose).float().cuda()
+            # xyz=pose[:3,3].reshape(3,1)
+            # r=R.from_matrix(pose[:3,:3])
+            # angles=r.as_euler("xyz").reshape(3, 1)
+            # kf.initialize(xyz, angles)
+            # measurement = np.concatenate((xyz, angles)).reshape(6, 1)
             
-            for k in range(10):
-                kf.update(measurement)
-                # pose=kf.predict_next_pose()
+            # for k in range(10):
+            #     kf.update(measurement)
+            #     # pose=kf.predict_next_pose()
             
         
             logging.info(f"Initial pose:\n{pose}")
@@ -214,7 +214,7 @@ if __name__ == "__main__":
         if SAVE_VIDEO:
             video_writer.write(vis[..., ::-1])
     data=evaluate_metrics(history_poses, reader, mesh)
-    header=["object","ADD", "ADD-S", "rotation_error_deg", "translation_error", "recall"]
+    header=["object","ADD", "ADD-S", "rotation_error_deg", "translation_error", "mspd","mssd","recall", "AR_mspd", "AR_mssd","AR_vsd"]
     with open(f"tmp.csv", "w") as f:
         f.write(",".join(header)+"\n")
         for key in header[1:]:

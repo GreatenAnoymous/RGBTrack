@@ -178,7 +178,7 @@ class PoseTracker:
             'orientation_std': np.sqrt(np.diag(self.kf.P)[6:9])
         }
     
-def evaluate_metrics(history_poses,reader, mesh):
+def evaluate_metrics(history_poses,reader, mesh, traj=False):
     """
     Evaluate the tracking performance using the ground truth poses.
     history_poses: List of estimated poses at each frame
@@ -190,13 +190,19 @@ def evaluate_metrics(history_poses,reader, mesh):
     pairwise_distances = cdist(vertices, vertices)  # Use scipy.spatial.distance.cdist
     diameter_exact = np.max(pairwise_distances)
     data={"ADD":0, "ADD-S":0,  "rotation_error_deg":0, "translation_error":0, "mspd":0,"mssd":0, "recall":0, "AR_mspd":0, "AR_mssd":0, "AR_vsd":0}
+    if traj:
+        data2={"ADD":[], "ADD-S":[],  "rotation_error_deg":[], "translation_error":[], "mspd":[],"mssd":[], "recall":[], "AR_mspd":[], "AR_mssd":[], "AR_vsd":[]}
     for i, pose in enumerate(history_poses):
         gt_pose = reader.get_gt_pose(i)
         tmp_data= evaluate_pose(gt_pose, pose, mesh, diameter_exact, reader.K)
         for key in tmp_data:
             data[key]+=tmp_data[key]
+            if traj:
+                data2[key].append(tmp_data[key])
     for key in data:
         data[key]/=len(history_poses)
+    if traj:
+        return data,data2
     return data
     
 def demo_tracking():

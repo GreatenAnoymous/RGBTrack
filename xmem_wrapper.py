@@ -6,6 +6,8 @@ import argparse
 import pyrender
 import trimesh
 from tools import get_3d_points
+# from ultralytics import YOLO
+# from ultralytics.utils.plotting import Annotator, colors
 
 XMEM_PATH = '/mnt/ssd_990/teng/XMem'
 sys.path.append(XMEM_PATH)
@@ -34,3 +36,10 @@ from progressbar import progressbar
 torch.set_grad_enabled(False)
 torch.cuda.empty_cache()
 
+
+class yolo_wrapper:
+    def __init__(self):
+        self.model= YOLO("yolo11n-seg.pt")  # segmentation model
+
+    def initialize(self, rgb, mask):
+        annotator=Annotator(rgb, line_width=2)

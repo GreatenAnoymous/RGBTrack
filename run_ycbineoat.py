@@ -61,11 +61,79 @@ def get_mask(reader, i_frame, ob_id, detect_type):
 
     return valid
 
+def run_pose_unkown_scale(choice):
+    json_data=load_json_data()
+    final_data={}
+    # name=["foundation_pose","binary_search_depth"]
+    name=["foundation_pose","binary_search"]
+    k=0
+    for dataset, cad_model in json_data.items():
+        test_scene_dir="./data/"+dataset
+        print("test_scene_dir:",test_scene_dir)
+        cad_model_path="./data/CADmodels/"+cad_model+"/textured_simple.obj"
+        scorer = ScorePredictor()
+        refiner = PoseRefinePredictor()
+        glctx = dr.RasterizeCudaContext()
+        mesh=trimesh.load(cad_model_path)
+        vertices = mesh.vertices
+        pairwise_distances = cdist(vertices, vertices)  # Use scipy.spatial.distance.cdist
+        diameter_exact = np.max(pairwise_distances)
+        print("diameter_exact:", diameter_exact)
+        original_mesh=mesh.copy()
+        mesh.apply_scale(3)
+        
+        # diameter_exact=diameters[k]
+        k+=1
+        est=FoundationPose(model_pts=mesh.vertices, model_normals=mesh.vertex_normals, mesh=mesh, scorer=scorer, refiner=refiner, glctx=glctx, debug_dir="./debug", debug=0)
+        reader = YcbineoatReader(video_dir=test_scene_dir, shorter_side=None, zfar=np.inf)
+        final_data[dataset]={}
+ 
+        for i in range(len(reader.color_files)):
+            color=reader.get_color(i)
+            depth=reader.get_depth(i)
+            
+            if i==0:
+                mask=reader.get_mask(i).astype(bool)
+                if choice==0:
+                    pose=est.register(K=reader.K, rgb=color, depth=depth, ob_mask=mask, iteration=5)
+                elif choice==1:
+                    pose,scale= binary_search_scale(est, mesh,color, depth, mask, reader.K, scale_min=0.2, scale_max=5,debug=False)
+
+                
+            else:
+                pose = est.track_one(rgb=color, depth=depth, K=reader.K, iteration=2)
+            gt_pose=reader.get_gt_pose(i)
+            
+            tmp=evaluate_pose(gt_pose, pose, original_mesh, diameter_exact,reader.K)
+            
+            for key in tmp:
+                if key not in final_data[dataset]:
+                    final_data[dataset][key]=0
+                final_data[dataset][key]+=tmp[key]
+        for key in final_data[dataset]:
+            final_data[dataset][key]/=len(reader.color_files)
+    #dump to csv
+        csv_file=f"./tmp/{name[choice]}.csv"
+        header=["object","ADD", "ADD-S", "rotation_error_deg", "translation_error", "mspd","mssd","recall", "AR_mspd", "AR_mssd","AR_vsd"]
+        # Check if the file exists to avoid writing the header multiple times
+        # write_header = not os.path.exists(csv_file)
+
+        with open(csv_file, "w") as f:  # Open in append mode
+            # if write_header:
+            f.write(",".join(header) + "\n")  # Write header only if the file is new
+
+            for obj in final_data:
+                f.write(str(obj))
+                for key in header[1:]:
+                    f.write(f",{final_data[obj][key]}")
+                f.write("\n")
+
 
 def run_pose_estimation_only(choice):
     json_data=load_json_data()
     final_data={}
-    name=["foundation_pose","binary_search_depth"]
+    # name=["foundation_pose","binary_search_depth"]
+    name=["binary_search_depth10","binary_search_depth15"]
     k=0
     for dataset, cad_model in json_data.items():
         test_scene_dir="./data/"+dataset
@@ -90,11 +158,14 @@ def run_pose_estimation_only(choice):
             depth=reader.get_depth(i)
             mask=reader.get_mask(i).astype(bool)
 
+            # if choice==0:
+            #     pose=est.register(K=reader.K, rgb=color, depth=depth, ob_mask=mask, iteration=5)            
+            # elif choice==1:
+            #     pose= binary_search_depth(est, mesh,color, mask, reader.K, depth_min=0.3, depth_max=2.0,debug=False)
             if choice==0:
-                pose=est.register(K=reader.K, rgb=color, depth=depth, ob_mask=mask, iteration=5)            
+                pose= binary_search_depth(est, mesh,color, mask, reader.K, depth_min=0.4, depth_max=2.0, iteration=10,debug=False)
             elif choice==1:
-                pose= binary_search_depth(est, mesh,color, mask, reader.K, depth_max=1.5,debug=False)
-    
+                pose= binary_search_depth(est, mesh,color, mask, reader.K, depth_min=0.4, depth_max=2.0, iteration=15,debug=False)
             gt_pose=reader.get_gt_pose(i)
             
             tmp=evaluate_pose(gt_pose, pose, mesh, diameter_exact,reader.K)
@@ -127,7 +198,7 @@ def run_pose_estimation_only(choice):
 def run_pose_estimation(choice):
     json_data=load_json_data()
     final_data={}
-    name=["foundation_pose", "foundation_pose_with_zero_depth", "foundation_pose_with_kf","foundation_pose_last_depth", "foundation_pose_with_binary_search","foundation_pose_gt"]
+    name=["foundation_pose", "foundation_pose_with_zero_depth", "foundation_pose_with_kf", "foundation_pose_last_depth", "foundation_pose_with_binary_search","foundation_pose_gt"]
     k=0
     for dataset, cad_model in json_data.items():
         test_scene_dir="./data/"+dataset
@@ -250,7 +321,13 @@ if __name__ == "__main__":
     # choice=5
     # run_pose_estimation(choice)
 
-    choice=0
-    run_pose_estimation_only(choice)
+    # choice=0
+    # # run_pose_estimation_only(choice)
+    # run_pose_unkown_scale(choice)
     choice=1
-    run_pose_estimation_only(choice)
+    # run_pose_estimation_only(choice)
+    run_pose_unkown_scale(choice)
+
+    choice=0
+    # run_pose_estimation_only(choice)
+    run_pose_unkown_scale(choice)
