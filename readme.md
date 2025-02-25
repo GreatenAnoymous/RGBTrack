@@ -54,9 +54,18 @@ In this demo, we demonstrate how to combine One-2-3-45++, a monocular depth esti
 python run_demo_unkown_scale.py
 ```
 
+
+https://github.com/user-attachments/assets/6333f520-9b9c-44ce-8454-55750f9e55fe
+
+
+
 ```bash
 python run_demo_colacan.py
 ```
+
+
+https://github.com/user-attachments/assets/e7852842-a41d-4a3e-a65b-a8e6d4d05941
+
 
 ### Demo 3: Auto-Recovery Mechanism Guided by XMem for Tracking Loss in Pose Tracking
 
