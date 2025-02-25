@@ -10,9 +10,8 @@
 from estimater import *
 from datareader import *
 import argparse
-from tools import save_poses_to_txt, read_poses_from_txt
-from binary_search_adjust import *
-SAVE_VIDEO=True
+from tools import *
+SAVE_VIDEO=False
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser()
@@ -20,13 +19,11 @@ if __name__=='__main__':
     code_dir = os.path.dirname(os.path.realpath(__file__))
     parser.add_argument('--mesh_file', type=str, 
                     default=f"{code_dir}/data/CADmodels/021_bleach_cleanser/textured_simple.obj",
-                    #   default=f'{code_dir}/demo_data/mustard0/mesh/textured_simple.obj'
-                    # default=f"{code_dir}/data/CADmodels/021_bleach_cleanser/textured_simple.obj",
-                    # default=f"{code_dir}/demo_data/far_away3/mesh/model.obj"
     )
     parser.add_argument(
         "--test_scene_dir", type=str, default=f"{code_dir}/data/bleach0"
     )
+    parser.add_argument('--scale_recovery', type=bool, default=True)
     parser.add_argument('--est_refine_iter', type=int, default=5)
     parser.add_argument('--track_refine_iter', type=int, default=2)
     parser.add_argument('--debug', type=int, default=1)
@@ -39,6 +36,7 @@ if __name__=='__main__':
     mesh.apply_scale(3)
     debug = args.debug
     debug_dir = args.debug_dir
+    use_scale_recovery = args.scale_recovery
     os.system(f'rm -rf {debug_dir}/* && mkdir -p {debug_dir}/track_vis {debug_dir}/ob_in_cam')
 
     to_origin, extents = trimesh.bounds.oriented_bounds(mesh)
@@ -57,19 +55,16 @@ if __name__=='__main__':
         depth = reader.get_depth(i)
         if i==0:
             mask = reader.get_mask(0).astype(bool)
-
-            # pose, scale=binary_search_scale(est, mesh, color, depth, mask, reader.K, debug=False)
-            # mesh.apply_scale(scale)
-            # to_origin, extents = trimesh.bounds.oriented_bounds(mesh)
-            # bbox = np.stack([-extents/2, extents/2], axis=0).reshape(2,3)
-            pose = est.register(K=reader.K, rgb=color, depth=depth, ob_mask=mask, iteration=args.est_refine_iter)
-            # pose=est.register_without_depth(K=reader.K, rgb=color, ob_mask=mask, iteration=args.est_refine_iter,low=0.2,high=3)
-    
+            if use_scale_recovery: 
+                pose, scale=binary_search_scale(est, mesh, color, depth, mask, reader.K, debug=False)
+                mesh.apply_scale(scale)
+                to_origin, extents = trimesh.bounds.oriented_bounds(mesh)
+                bbox = np.stack([-extents/2, extents/2], axis=0).reshape(2,3)
+            else:
+                pose = est.register(K=reader.K, rgb=color, depth=depth, ob_mask=mask, iteration=args.est_refine_iter)
             if SAVE_VIDEO:
                 output_video_path = "no_recovery.mp4"  # Specify the output video filename
                 fps = 30  # Frames per second for the video
-                # Assuming 'color' is the image shape (height, width, channels)
-                # Create a VideoWriter object
                 fourcc = cv2.VideoWriter_fourcc(*'XVID')  # Codec for .avi format
                 video_writer = cv2.VideoWriter(output_video_path, fourcc, fps, (640, 480))
         else:

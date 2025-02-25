@@ -1,4 +1,4 @@
-# FoundationPose: Unified 6D Pose Estimation and Tracking of Novel Objects (with New Features)
+# Enhanced FoundationPose (with New Features)
 
 ## Introduction
 
@@ -7,14 +7,14 @@ This repository introduces new features and improvements to **FoundationPose**, 
 1. **Pose Estimation and Tracking Using Accurate CAD Models Without Depth**
 2. **Pose Estimation and Tracking Using CAD Models With Unknown Scale**
 3. **Auto-Recovery Mechanism for Tracking Loss in Pose Tracking**
-4. **Improved Pose Estimation and Tracking for Transparent Objects**
+
 
 ## Installation
 
 To set up the enhanced FoundationPose environment:
 
 1. Follow the instructions in the [original README](./readme_original.md) to install FoundationPose.
-2. Install **[XMem](https://github.com/hkchengrex/XMem)** for object tracking.
+2. Install **[XMem](https://github.com/hkchengrex/XMem)** or **[SAM2](https://github.com/Gy920/segment-anything-2-real-time.git)** for object tracking.
 3. Install **[Metric3D](https://github.com/YvanYin/Metric3D)** or **[ZoeDepth](https://github.com/isl-org/ZoeDepth)** for monocular depth estimation.
 
 ---
@@ -31,9 +31,12 @@ Below is the framework for pose estimation without depth.
 python run_demo_without_depth.py
 ```
 
-
 https://github.com/user-attachments/assets/a8d59141-37e4-4a3f-a822-91e5639904b6
 
+For another demo, download our custom data captured using D405 and place it in the demo_data folder. Then run
+```bash
+python run_demo_without_depth.py --mesh_file ./demo_data/d405_demo/mesh/model.obj --test_scene_dir ./demo_data/d405_demo/
+```
 
 ### Demo 2: Pose Estimation and Tracking Using CAD Models With Unknown Scale
 
@@ -43,7 +46,11 @@ In this demo, we demonstrate how to combine One-2-3-45++, a monocular depth esti
 
 
 ```bash
-python run_demo_model_mono.py
+python run_demo_unkown_scale.py
+```
+
+```bash
+python run_demo_colacan.py
 ```
 
 ### Demo 3: Auto-Recovery Mechanism Guided by XMem for Tracking Loss in Pose Tracking
@@ -64,11 +71,12 @@ In the tracking process of **FoundationPose**, a refiner network and the pose fr
 
 3. **Optimizing for Real-Time Performance**
    - To improve real-time performance, we reduce the number of hypothesis poses by 80%, selecting only those close to the pose before tracking was lost.
-   - The final tracking frame rate of **FoundationPose + XMem** is approximately **18-20 FPS** on an **RTX 3090** under a resolution of **640 x 480**, using default refining iteration parameters.
+   - The final tracking frame rate of **FoundationPose + XMem** is approximately **22 FPS** on an **RTX 3090** under a resolution of **640 x 480**, using default refining iteration parameters.
 
 ### Running a Demo on the ClearPose Dataset
-
-Below is the command line to run a demo on one scene in the ClearPose dataset:
+First download the **[ClearPose](https://github.com/opipari/ClearPose)** dataset.
+ 
+Below is the command line to run a demo on set 8 scene 2 in the ClearPose dataset:
 ```bash
 python run_demo_clearpose.py
 ```
@@ -81,18 +89,10 @@ https://github.com/user-attachments/assets/f9200409-62ee-4f8d-8699-78edfc2415e1
 
 
 
-### Demo 4: Improved Pose Estimation and Tracking for Transparent Objects
-
-Illustration of advancements in pose estimation and tracking specifically for transparent objects.
-
-```bash
-python run_demo_transparent_bottle_tracking.py
-```
-
-
-https://github.com/user-attachments/assets/3451b619-f70c-4e40-9a6e-c8963da8fa5a
-
 
 ---
 
 ## References
+1. Wen, B., Yang, W., Kautz, J., & Birchfield, S. (2024). Foundationpose: Unified 6d pose estimation and tracking of novel objects. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (pp. 17868-17879).
+2. Cheng, H. K., & Schwing, A. G. (2022, October). Xmem: Long-term video object segmentation with an atkinson-shiffrin memory model. In European Conference on Computer Vision (pp. 640-658). Cham: Springer Nature Switzerland.
+   

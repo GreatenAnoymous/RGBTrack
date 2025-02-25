@@ -12,13 +12,12 @@ from datareader import *
 import itertools
 from learning.training.predict_score import *
 from learning.training.predict_pose_refine import *
-import yaml
 import torch
-from binary_search_adjust import *
+
 from tools import PoseTracker
 from scipy.spatial.transform import Rotation as R
 from tools import render_cad_depth, render_cad_mask, render_rgbd
-from tmp.featurematching import FeatureMathcerPoseEstimator
+
 
 class FoundationPose:
     def __init__(

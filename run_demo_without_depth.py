@@ -5,18 +5,13 @@
 # and any modifications thereto.  Any use, reproduction, disclosure or
 # distribution of this software and related documentation without an express
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
-import matplotlib.cm as cm
+
 import time
 from estimater import *
 from datareader import *
 import argparse
-import trimesh
-from tools import get_3d_points
-from binary_search_adjust import *
+from tools import *
 import numpy as np
-import pyrender
-import open3d as o3d
-from scipy.spatial.transform import Rotation as R
 
 SAVE_VIDEO=False
 
@@ -27,16 +22,15 @@ if __name__ == "__main__":
         "--mesh_file",
         type=str,
         default=f"{code_dir}/demo_data/mustard0/mesh/textured_simple.obj",
-        # default="/mnt/ssd_990/teng/ycb/FoundationPose/demo_data/cola_can/mesh/32429d6d7cd54f8392f9b3056a1f26c3.obj",
     )
     parser.add_argument(
         "--test_scene_dir", type=str, default=f"{code_dir}/demo_data/mustard0"
-        # "--test_scene_dir", type=str, default=f"{code_dir}/demo_data/cola_can"
     )
     parser.add_argument("--est_refine_iter", type=int, default=5)
     parser.add_argument("--track_refine_iter", type=int, default=1)
     parser.add_argument("--debug", type=int, default=1)
     parser.add_argument("--debug_dir", type=str, default=f"{code_dir}/debug")
+    parser.add_argument("--mode", type=int, default=0)
     args = parser.parse_args()
 
     set_logging_format()
@@ -71,16 +65,15 @@ if __name__ == "__main__":
     reader = YcbineoatReader(
         video_dir=args.test_scene_dir, shorter_side=None, zfar=np.inf
     )
-    
-    
-    
+
     for i in range(len(reader.color_files)):
         color = reader.get_color(i)
         if i == 0:
             mask = reader.get_mask(0).astype(bool)
             last_mask= mask
             t1=time.time()
-            pose= binary_search_depth(est, mesh, color, mask, reader.K,debug=True)
+            pose= binary_search_depth(est, mesh, color, mask, reader.K, debug=True)
+
             # pose = est.register_without_depth(
             #     K=reader.K,
             #     rgb=color,
@@ -99,11 +92,13 @@ if __name__ == "__main__":
                 video_writer = cv2.VideoWriter(output_video_path, fourcc, fps, (640, 480))
         else:
             t1=time.time()
-            last_depth = np.zeros_like(last_mask)
+            if args.mode==0:
+                last_depth = np.zeros_like(last_mask)
+            elif args.mode==1:
+                last_depth = render_cad_depth(pose, mesh, reader.K)
             pose = est.track_one(
                 rgb=color, depth=last_depth, K=reader.K, iteration=args.track_refine_iter
             )
-            
             t2=time.time()
         os.makedirs(f"{debug_dir}/ob_in_cam", exist_ok=True)
         np.savetxt(f"{debug_dir}/ob_in_cam/{reader.id_strs[i]}.txt", pose.reshape(4, 4))
