@@ -4,7 +4,7 @@
 
 1. Add support for SAM2
 2. Add support for TensorRT
-3. Add website
+3. Upload the technique report
 
 ## Introduction
 
