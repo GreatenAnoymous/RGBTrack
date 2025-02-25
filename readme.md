@@ -36,7 +36,12 @@ https://github.com/user-attachments/assets/a8d59141-37e4-4a3f-a822-91e5639904b6
 For another demo, download our custom data captured using D405 and place it in the demo_data folder. Then run
 ```bash
 python run_demo_without_depth.py --mesh_file ./demo_data/d405_demo/mesh/model.obj --test_scene_dir ./demo_data/d405_demo/
+
 ```
+
+
+https://github.com/user-attachments/assets/23bad9be-d3d0-4549-b6d4-58b09c48070a
+
 
 ### Demo 2: Pose Estimation and Tracking Using CAD Models With Unknown Scale
 
