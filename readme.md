@@ -46,7 +46,11 @@ python run_demo_without_depth.py --mesh_file ./demo_data/d405_demo/mesh/model.ob
 ```
 
 
-https://github.com/user-attachments/assets/23bad9be-d3d0-4549-b6d4-58b09c48070a
+
+
+https://github.com/user-attachments/assets/c3c37b5b-b81a-401a-a665-658aafb5dc44
+
+
 
 
 ### Demo 2: Pose Estimation and Tracking Using CAD Models With Unknown Scale
