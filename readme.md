@@ -29,7 +29,7 @@ To set up the enhanced FoundationPose environment:
 
 The original FoundationPose requires depth input for both pose estimation and tracking. However, if a CAD model with accurate scale is available, depth input becomes unnecessary.
 
-Below is the framework for pose estimation without depth.
+Below is the framework for pose estimation without depth. Download the demo dataset from the original FoundationPose repo then run:
 
 ```bash
 python run_demo_without_depth.py
@@ -37,7 +37,7 @@ python run_demo_without_depth.py
 
 https://github.com/user-attachments/assets/a8d59141-37e4-4a3f-a822-91e5639904b6
 
-For another demo, download our custom data captured using D405 and place it in the demo_data folder. Then run
+For another demo, download our custom data captured using D405 in [https://drive.google.com/file/d/1RxnoS9QNRRYxJCyXAFPdeTd3UOKXMFAT/view?usp=sharing](https://drive.google.com/file/d/1RxnoS9QNRRYxJCyXAFPdeTd3UOKXMFAT/view?usp=sharing) and place it in the demo_data folder. Then run
 ```bash
 python run_demo_without_depth.py --mesh_file ./demo_data/d405_demo/mesh/model.obj --test_scene_dir ./demo_data/d405_demo/
 
