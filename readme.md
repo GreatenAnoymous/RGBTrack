@@ -1,5 +1,9 @@
 # Enhanced FoundationPose (with New Features)
 
+## ToDo
+
+1. Add support for SAM2
+
 ## Introduction
 
 This repository introduces new features and improvements to **FoundationPose**, focusing on enhancing 6D pose estimation and tracking capabilities. The key updates include:
