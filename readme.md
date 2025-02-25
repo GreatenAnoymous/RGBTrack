@@ -37,7 +37,7 @@ python run_demo_without_depth.py
 
 https://github.com/user-attachments/assets/a8d59141-37e4-4a3f-a822-91e5639904b6
 
-For another demo, download our custom data captured using D405 in [https://drive.google.com/file/d/1RxnoS9QNRRYxJCyXAFPdeTd3UOKXMFAT/view?usp=sharing](https://drive.google.com/file/d/1RxnoS9QNRRYxJCyXAFPdeTd3UOKXMFAT/view?usp=sharing) and place it in the demo_data folder. Then run
+For another demo, download our [custom data](https://drive.google.com/file/d/1RxnoS9QNRRYxJCyXAFPdeTd3UOKXMFAT/view?usp=sharing) captured using D405  and place it in the demo_data folder. Then run
 ```bash
 python run_demo_without_depth.py --mesh_file ./demo_data/d405_demo/mesh/model.obj --test_scene_dir ./demo_data/d405_demo/
 
