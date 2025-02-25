@@ -3,6 +3,7 @@
 ## ToDo
 
 1. Add support for SAM2
+2. Add support for TensorRT
 
 ## Introduction
 
